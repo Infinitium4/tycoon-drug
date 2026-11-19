@@ -58,3 +58,22 @@ docker compose logs -f            # voir les connexions
 - Santé : `curl http://localhost:2567/healthz`.
 - Derrière un reverse proxy HTTPS (Nginx, Traefik, Caddy) : pense à laisser passer les WebSockets (`Upgrade` / `Connection`). Le jeu passe tout seul en `wss://`.
 - Mise à jour : `git pull && docker compose up -d --build`.
+
+## Sécurité du serveur
+- Tailles et débits limités (8 Ko par message, ~10 messages/s, 1 état/s), connexions muettes coupées après 10 s, connexions mortes après 30 s.
+- Textes nettoyés (pas de HTML), nombres bornés, issue des attaques tirée par le serveur, butin plafonné à 20 % et réclamable une seule fois.
+- Variables d'environnement utiles :
+  - `MAX_PER_IP=3` : connexions simultanées par IP.
+  - `TRUST_PROXY=1` : derrière un reverse proxy (lit `X-Forwarded-For`).
+  - `ALLOWED_ORIGINS=https://jeu.mondomaine.fr` : n'accepte que les WebSockets venant de ton domaine.
+- Limite connue : l'économie tourne chez chaque joueur (le serveur ne recalcule pas l'argent). Un joueur qui modifie le code peut gonfler son propre cash ; il ne peut pas toucher à celui des autres au-delà des règles ci-dessus.
+
+## Panneau admin (F9)
+- En jeu, appuie sur **F9**. En solo il s'ouvre direct ; en ligne il demande le mot de passe, vérifié **par le serveur**.
+- Sur la VM, mets le mot de passe dans un fichier `.env` à côté du `docker-compose.yml` (jamais sur GitHub) :
+  ```bash
+  echo "ADMIN_PASSWORD=ton-mot-de-passe" > .env
+  docker compose up -d
+  ```
+- Sans `ADMIN_PASSWORD`, le panneau est désactivé en ligne. 5 essais par minute max, chaque connexion est loguée (`docker compose logs`).
+- Le panneau : ajouter / fixer le cash, mettre un bâtiment à n'importe quel niveau, tout au niveau 25 / 50, pression à 0, tout débloquer, château + toutes les folies. La touche P (+10 k€) marche aussi une fois admin.

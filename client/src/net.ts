@@ -18,6 +18,9 @@ export function servedByServer() { return defaultServer() === (location.protocol
 
 export class Net {
   online = false;
+  /** Admin validé par le serveur (mot de passe ADMIN_PASSWORD). */
+  admin = false;
+  onAdmin: (ok: boolean, enabled: boolean) => void = () => {};
   id = 0;
   slot = 0;
   players: PlayerInfo[] = [];
@@ -26,6 +29,7 @@ export class Net {
   onWorld: (ext: number[]) => void = () => {};
   onAttacked: (m: { by: number; cartel: string; boss: string; win: boolean }) => void = () => {};
   onLoot: (m: { amount: number; cartel: string }) => void = () => {};
+  onHitResult: (m: { target: number; win: boolean }) => void = () => {};
   onNews: (text: string) => void = () => {};
   onLost: () => void = () => {};
   private ws: WebSocket | null = null;
@@ -51,6 +55,8 @@ export class Net {
           case 'world': this.players = (m.players as PlayerInfo[]).filter(p => p.id !== this.id); this.dom = m.dom; this.onWorld(m.ext); break;
           case 'attacked': this.onAttacked(m); break;
           case 'loot': this.onLoot(m); break;
+          case 'hitResult': this.onHitResult(m); break;
+          case 'admin': this.admin = m.ok === true; this.onAdmin(this.admin, m.enabled === true); break;
           case 'news': this.onNews(m.text); break;
         }
       };
@@ -66,9 +72,11 @@ export class Net {
     });
     s.satOut.fill(0);
   }
-  hit(target: number, win: boolean) { this.send({ t: 'hit', target, win }); }
+  /** Le serveur tire lui-même l'issue de l'attaque (le client ne peut pas tricher dessus). */
+  hit(target: number) { this.send({ t: 'hit', target }); }
   loot(to: number, amount: number) { this.send({ t: 'loot', to, amount }); }
   news(text: string) { this.send({ t: 'news', text }); }
+  adminLogin(pass: string) { this.send({ t: 'admin', pass }); }
   bye() { this.send({ t: 'bye' }); }
   player(id: number) { return this.players.find(p => p.id === id); }
   /** Place des autres dans TA vue : ta base est toujours à l'origine, les autres sur les emplacements autour. */

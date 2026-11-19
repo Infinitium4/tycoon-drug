@@ -7,7 +7,7 @@ import {
 } from '../sim/config';
 import {
   GameState, SimEvent, employees, bribe, bribeCost, canLaunch, districtAction, districtFactor, launchOp, maxAffordable, opChance,
-  productPrice, selectProduct, totalCost, upgrade, power, needsLand, buyLand, buyLux, villaTier, hitPrice, canHit, orderHit, prestige, buyCountry, selectRoute, pvpPrice, pvpChance, orderPvp,
+  productPrice, selectProduct, totalCost, upgrade, power, needsLand, buyLand, buyLux, villaTier, hitPrice, canHit, orderHit, prestige, buyCountry, selectRoute, pvpPrice, pvpChance, orderPvp, syncUnits,
 } from '../sim/sim';
 import { World } from '../render/scene';
 import { gameHour, nightFactor, DAY_LENGTH } from '../render/fx';
@@ -60,13 +60,14 @@ export class Hud {
       <div class="stockbar" id="stock"></div>
       <div class="nav"><button data-go="villa">Le repaire</button><button data-go="base">La base</button><button data-go="city">La ville</button></div>
       <div class="pc" id="pc"></div>
+      <div class="pc admin" id="admin"></div>
       <div class="cartel" id="cartel"></div>
       <div class="labels" id="labels"></div>
       <div class="floats" id="floats"></div>
       <div class="phone" id="toasts"></div>
       <div class="panel" id="panel"></div>
       <div class="overlay" id="overlay"></div>
-      <div class="help">Glisser : déplacer · Molette : zoom · Clic sur un bâtiment : améliorer · Clic sur un quartier : l'ouvrir ou le couper · Panneaux « À vendre » : agrandir la base · G : graphismes réalistes on/off · P : +10 000 € (test, solo)</div>`;
+      <div class="help">Glisser : déplacer · Molette : zoom · Clic sur un bâtiment : améliorer · Clic sur un quartier : l'ouvrir ou le couper · Panneaux « À vendre » : agrandir la base · G : graphismes réalistes on/off · F9 : admin</div>`;
     parent.appendChild(this.root);
     const labels = this.q('#labels');
     for (const k of STATION_KEYS) {
@@ -195,8 +196,8 @@ export class Hud {
         const tgt = ev.target >= 0 ? `${BOSSES[ev.target]} (${GANGS[ev.target]})` : '';
         if (ev.key === 'joueur') {
           const pl = this.net?.player(ev.target);
-          this.sms('Le Tueur', ev.win ? `On a retourné la base de ${pl?.cartel ?? 'l\'autre'}. Le butin arrive.` : `Leurs gars nous attendaient. On s'est replié.`, ev.win ? 'good' : 'bad');
-          this.net?.hit(ev.target, ev.win);
+          this.sms('Le Tueur', `On est devant chez ${pl?.cartel ?? 'eux'}. On y va.`, 'good');
+          this.net?.hit(ev.target);
           break;
         }
         const ok: Record<Exclude<HitKey, 'joueur'>, string> = { boss: `C'est fait. ${tgt} ne se relèvera pas.`, planque: `Boum. La planque de ${GANGS[ev.target]} est partie en fumée.`, commissaire: 'Le commissaire a eu un « accident ». Personne ne viendra fouiner.', journaliste: 'Le journaliste a arrêté son enquête. Définitivement.', temoin: 'Le témoin ne témoignera pas. T\'es couvert pour la prochaine fois.' };
@@ -363,6 +364,63 @@ export class Hud {
     }
     this.renderPanel(false);
     if (this.pcTab) this.renderPc();
+  }
+
+  // ---------------- panneau admin (F9) ----------------
+  /** F9 : en solo le panneau s'ouvre ; en ligne, mot de passe vérifié par le serveur. */
+  toggleAdmin() {
+    const el = this.q('#admin');
+    if (el.classList.contains('open')) { el.classList.remove('open'); return; }
+    if (this.net?.online && !this.net.admin) this.adminLogin(); else this.adminPanel();
+    el.classList.add('open');
+  }
+  private adminLogin(err = '') {
+    const el = this.q('#admin');
+    el.innerHTML = `<div class="pcwin small"><div class="pcbar"><span>🔒 Accès admin</span><button data-x>✕</button></div><div class="pcbody">
+      <p class="muted">Mot de passe du serveur (variable ADMIN_PASSWORD sur la VM).</p>
+      <input type="password" id="apass" autocomplete="off" placeholder="Mot de passe">${err ? `<p class="err">${err}</p>` : ''}
+      <button class="go" data-login>Entrer</button></div></div>`;
+    const inp = el.querySelector('#apass') as HTMLInputElement;
+    setTimeout(() => inp.focus(), 30);
+    const send = () => { if (!inp.value) return; this.net!.onAdmin = (ok, enabled) => { if (ok) { this.sms('Admin', 'Accès admin accordé.', 'good'); this.adminPanel(); } else this.adminLogin(enabled ? 'Mot de passe incorrect.' : 'Panneau admin désactivé sur ce serveur (ADMIN_PASSWORD vide).'); }; this.net!.adminLogin(inp.value); };
+    inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') send(); if (e.key === 'Escape') el.classList.remove('open'); });
+    el.onclick = e => { const t = e.target as HTMLElement; if (t.closest('[data-x]') || t === el) el.classList.remove('open'); if (t.closest('[data-login]')) send(); };
+  }
+  private adminPanel() {
+    const el = this.q('#admin');
+    const opts = STATION_KEYS.map(k => `<option value="${k}">${STATIONS[k].name}</option>`).join('');
+    el.innerHTML = `<div class="pcwin small"><div class="pcbar"><span>🛠️ Panneau admin</span><button data-x>✕</button></div><div class="pcbody">
+      <h4>Argent</h4><div class="arow">${[1e5, 1e6, 1e7, 1e9].map(v => `<button class="opbtn" data-cash="${v}">+${fmt(v)}</button>`).join('')}</div>
+      <div class="arow"><input id="acash" type="number" placeholder="Montant exact (€)"><button class="opbtn" data-setcash>Fixer le cash</button></div>
+      <h4>Bâtiments</h4><div class="arow"><select id="ast">${opts}</select><input id="alvl" type="number" min="0" max="200" value="50"><button class="opbtn" data-lvl>Mettre au niveau</button></div>
+      <div class="arow"><button class="opbtn" data-all="25">Tout niveau 25</button><button class="opbtn" data-all="50">Tout niveau 50</button></div>
+      <h4>Divers</h4><div class="arow"><button class="opbtn" data-heat>Pression à 0</button><button class="opbtn" data-unlock>Tout débloquer</button><button class="opbtn" data-lux>Toutes les folies</button></div>
+      <p class="muted">${this.net?.online ? 'Connecté en admin sur ce serveur.' : 'Solo : panneau libre.'} F9 pour fermer.</p></div></div>`;
+    el.querySelectorAll('input,select').forEach(i => i.addEventListener('keydown', e => e.stopPropagation()));
+    el.onclick = e => {
+      const t = e.target as HTMLElement, s = this.s;
+      if (t.closest('[data-x]') || t === el) { el.classList.remove('open'); return; }
+      const b = t.closest('button') as HTMLButtonElement | null; if (!b) return;
+      const done = (m: string) => { syncUnits(s); this.tick(); this.sms('Admin', m, 'good'); };
+      if (b.dataset.cash) { s.cash += +b.dataset.cash; done(`+${fmt(+b.dataset.cash)}`); }
+      else if ('setcash' in b.dataset) { const v = +(el.querySelector('#acash') as HTMLInputElement).value; if (Number.isFinite(v) && v >= 0) { s.cash = v; done(`Cash fixé à ${fmt(v)}`); } }
+      else if ('lvl' in b.dataset) {
+        const k = (el.querySelector('#ast') as HTMLSelectElement).value as StationKey, v = Math.max(0, Math.min(200, Math.round(+(el.querySelector('#alvl') as HTMLInputElement).value || 0)));
+        const land = needsLand(s, k); if (land) s.land[land] = true;
+        s.levels[k] = v; done(`${STATIONS[k].name} → niveau ${v}`);
+      }
+      else if (b.dataset.all) { const v = +b.dataset.all; for (const lk of LAND_KEYS) s.land[lk] = true; for (const k of STATION_KEYS) s.levels[k] = v; done(`Tous les bâtiments au niveau ${v}`); }
+      else if ('heat' in b.dataset) { s.heat = 0; done('Pression remise à 0'); }
+      else if ('unlock' in b.dataset) {
+        for (const lk of LAND_KEYS) s.land[lk] = true;
+        for (const r of ROUTE_KEYS) s.routes[r] = true;
+        s.districts.forEach(d => (d.unlocked = true));
+        for (const p of Object.keys(s.owned) as (keyof typeof s.owned)[]) s.owned[p] = true;
+        COUNTRY.forEach((_, i) => (s.country[i] = true));
+        done('Terrains, quartiers, produits, routes et maisons débloqués');
+      }
+      else if ('lux' in b.dataset) { for (const k of LUX_KEYS) s.lux[k] = true; if (s.levels.villa < 40) s.levels.villa = 40; done('Château + toutes les folies'); }
+    };
   }
 
   // ---------------- multijoueur ----------------

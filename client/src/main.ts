@@ -58,11 +58,13 @@ if (online) {
   net.onNews = text => hud.ticker(text);
   net.onAttacked = m => { const loss = sufferAttack(state, m.win); net.loot(m.by, loss); world.baseAttacked(m.win); hud.onAttacked(m.cartel, m.boss, m.win, loss); };
   net.onLoot = m => { if (m.amount > 0) { state.cash += m.amount; state.totalEarned += m.amount; hud.sms('Le Tueur', `Butin récupéré chez ${m.cartel} : ${Math.round(m.amount).toLocaleString('fr-FR')} €.`, 'good'); } };
+  net.onHitResult = m => { const pl = net.player(m.target); hud.sms('Le Tueur', m.win ? `On a retourné la base de ${pl?.cartel ?? 'l\'autre'}. Le butin arrive.` : `Leurs gars nous attendaient. On s'est replié.`, m.win ? 'good' : 'bad'); };
   net.onLost = () => { world.setOthers(net); hud.sms('Serveur', 'Connexion perdue. Tu continues en solo.', 'bad'); };
   setInterval(() => { if (net.online && !state.over) net.sendState(state); }, 1000);
   window.addEventListener('beforeunload', () => net.bye());
 }
-if (DEBUG) { Object.assign(window as any, { game: state, world, hud, step, syncUnits, net }); }
+// les outils de debug (?debug) sont coupés en ligne : pas de console pour se donner des millions
+if (DEBUG && !net.online) { Object.assign(window as any, { game: state, world, hud, step, syncUnits, net }); }
 
 // --- caméra : glisser = déplacer, molette = zoom, clic court = sélectionner ---
 const canvas = world.renderer.domElement;
@@ -85,7 +87,8 @@ world.onQuality = () => hud.sms('Réglages', 'Ton PC chauffe : j\'ai baissé un 
 
 // --- triche de test : touche P = +10k ---
 window.addEventListener('keydown', e => {
-  if (e.key.toLowerCase() === 'p' && !state.over && !net.online) { state.cash += 10000; hud.tick(); }
+  if (e.key === 'F9') { e.preventDefault(); hud.toggleAdmin(); return; }
+  if (e.key.toLowerCase() === 'p' && !state.over && (!net.online || net.admin)) { state.cash += 10000; hud.tick(); }
   if (e.key.toLowerCase() === 'g') { const on = world.post.toggle(); hud.sms('Réglages', on ? 'Graphismes réalistes activés.' : 'Graphismes simples (plus fluide).', 'good'); }
 });
 

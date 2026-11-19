@@ -243,3 +243,13 @@ button.go small { font-size: 13px; opacity: .9; }
 .start .mode button.on { border-color: #22c55e; color: #fff; background: #14532d; }
 .start .srv { display: none; } .start .srv.show { display: block; }
 .start .hint { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+/* v1.4 panneau admin */
+.pcwin.small { width: min(520px, 94vw); }
+.pc.admin { z-index: 16; }
+.pc.admin input, .pc.admin select { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 8px 10px; font: 700 14px 'Nunito', sans-serif; min-width: 0; }
+.pc.admin #apass { width: 100%; margin: 6px 0 10px; }
+.pc.admin .arow { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.pc.admin .arow input { flex: 1; } .pc.admin .arow select { flex: 1.4; } #alvl { max-width: 80px; }
+.pc.admin .opbtn { flex: 1; min-width: 110px; }
+.pc.admin .err { color: #f87171; font-weight: 800; }
+.pc.admin .go { width: 100%; }
