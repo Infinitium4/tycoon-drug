@@ -25,7 +25,7 @@ export class World {
   yaw = 0;
   desiredYaw = 0;
   /** Limites de la carte : base, aérodrome, ville, campagne, bases des autres. */
-  static BOUNDS = { x0: -150, x1: 250, z0: -140, z1: 140 };
+  static BOUNDS = { x0: -195, x1: 275, z0: -185, z1: 195 };
   private ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   frustum = 26;
   districtAnchors: THREE.Vector3[] = [];
@@ -542,8 +542,8 @@ export class World {
       if ([[0, 0], [w / 2, d / 2], [-w / 2, d / 2], [w / 2, -d / 2], [-w / 2, -d / 2]].some(([a, b]) => nearRoad(x + a, z + b))) continue;
       this.deco(M.field(w, d, fields), x, z); fields++;
     }
-    for (let k = 0; k < 900; k++) {
-      const x = 20 + rnd() * 220, z = -130 + rnd() * 270;
+    for (let k = 0; k < 1700; k++) {
+      const x = -195 + rnd() * 470, z = -185 + rnd() * 380;
       if (nearRoad(x, z) || (x > 160 && rnd() < 0.3)) continue;
       if (rnd() < 0.55) this.deco(M.tree(), x, z);
     }

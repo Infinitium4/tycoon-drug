@@ -41,7 +41,7 @@ server/         (à venir) Node + Colyseus, une room permanente de 4-6 joueurs
 ## Multijoueur (v1.3)
 - Double-clique sur **lancer-serveur.bat** (il faut Node.js : https://nodejs.org). La fenêtre affiche les adresses.
 - Toi : le jeu s'ouvre sur `http://localhost:2567`. Tes potes sur le même wifi : `http://<ton-ip>:2567` (adresse affichée par le serveur).
-- Une ville, 6 joueurs max, partie infinie. Pas de sauvegarde : si tu quittes ou si tu tombes, ta base disparaît.
+- Une ville, 12 joueurs par défaut (réglable jusqu'à 20 avec `MAX_PLAYERS` dans le `.env`), partie infinie. Pas de sauvegarde : si tu quittes ou si tu tombes, ta base disparaît.
 - Les bases des autres sont visibles de l'extérieur. Le PC du repaire montre leurs profils et permet de payer un contrat sur leur base (vol de 15 % du cash).
 - Les quartiers sont partagés : vendre au même endroit qu'un autre fait baisser les prix pour les deux. Le quartier affiche qui le domine.
 - Pour jouer avec des potes hors de chez toi : ouvre le port 2567 sur ta box, ou utilise un tunnel (ex : playit.gg).

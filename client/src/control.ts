@@ -10,7 +10,7 @@ export interface DistrictControl { shares: Share[]; mine: number; trend: number;
 
 const DECAY = 0.97;                                   // par seconde : ~33 s de mémoire
 const HIST = 60;                                      // tendance calculée sur la dernière minute
-const PLAYER_COLORS = ['#a855f7', '#f97316', '#06b6d4', '#ec4899', '#eab308'];
+const PLAYER_COLORS = ['#a855f7', '#f97316', '#06b6d4', '#ec4899', '#eab308', '#3b82f6', '#14b8a6', '#f43f5e', '#8b5cf6', '#84cc16', '#fb923c', '#0ea5e9'];
 const gangWeight = (rival: number) => (rival > 0 ? 0.3 + rival * 0.12 : 0);
 
 export class Control {

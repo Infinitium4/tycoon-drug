@@ -9,6 +9,7 @@ services:
     environment:
       - DATABASE_URL=postgres://tycoon:${DB_PASSWORD:-tycoon}@db:5432/tycoon
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}            # panneau admin (F9) : mets ton mot de passe dans le fichier .env
+      - MAX_PLAYERS=${MAX_PLAYERS:-12}               # joueurs en même temps (2 à 20)
       - MAX_PER_IP=3
       # - TRUST_PROXY=1                              # si derrière Nginx / Traefik / Caddy
       # - ALLOWED_ORIGINS=https://jeu.mondomaine.fr  # n'accepter que ton domaine

@@ -274,3 +274,5 @@ button.go small { font-size: 13px; opacity: .9; }
 .hud.far .dlabel .clead { display: none; }
 .hud.far .dlabel .cme { font-size: 10px; }
 .hud.far .dlabel .ctl { display: block; width: 70px; }
+
+.minimap, .camctl { z-index: 6; }

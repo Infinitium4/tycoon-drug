@@ -337,7 +337,11 @@ export function hitCost(key: HitKey, rival: number, cash: number) {
 }
 /** Les chefs des bandes rivales (un par quartier) : leurs fiches s'affichent sur le PC. */
 /** Emplacements des bases des autres joueurs (ta base est toujours à l'origine). */
-export const OTHER_SLOTS = [{ x: 205, z: 8 }, { x: 58, z: -100 }, { x: 112, z: 114 }, { x: -64, z: 64 }, { x: -86, z: -82 }];
+export const OTHER_SLOTS = [
+  { x: 205, z: 8 }, { x: 58, z: -100 }, { x: 112, z: 114 }, { x: -64, z: 64 }, { x: -86, z: -82 },
+  { x: 250, z: -60 }, { x: 250, z: 75 }, { x: 180, z: -125 }, { x: 0, z: -120 }, { x: -40, z: 110 }, { x: 40, z: 130 }, { x: 160, z: 165 },
+  { x: -110, z: 115 }, { x: -175, z: -25 }, { x: -55, z: -140 }, { x: 250, z: 170 }, { x: -175, z: 80 }, { x: 100, z: -165 }, { x: -140, z: -130 }, { x: 220, z: -160 },
+];   // 20 emplacements : jusqu'à 21 joueurs (le serveur plafonne à 20)
 export const BOSSES = ['Kader « le Rouquin »', 'Mehdi Z.', 'Tony Rizzo', 'Le Vieux Sam', 'Ibrahim « Ibou »', 'Les jumeaux K.', 'Dimitri V.', 'Rocco Mancini', 'Saïd « la Rafale »', 'Jo le Gitan', 'Lin Wei', 'Nabil B.', 'Marco Pinto', 'Ousmane D.', 'Le Belge', 'Vlad'];
 
 // ---------------- Aérodrome : imports ----------------

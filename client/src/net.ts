@@ -1,4 +1,4 @@
-// Connexion au serveur multijoueur (une ville partagée, 6 joueurs max).
+// Connexion au serveur multijoueur (une ville partagée, 12 joueurs par défaut, jusqu à 20).
 import { GameState, employees, power, villaTier } from './sim/sim';
 import { LUX_KEYS } from './sim/config';
 import type { SaveData } from './sim/save';
@@ -27,6 +27,8 @@ export class Net {
   onAdmin: (ok: boolean, enabled: boolean) => void = () => {};
   id = 0;
   slot = 0;
+  /** Nombre max de joueurs annoncé par le serveur. */
+  max = 12;
   players: PlayerInfo[] = [];
   /** Pour chaque quartier : id du joueur qui y vend le plus (0 = personne). */
   dom: number[] = [];
@@ -62,7 +64,7 @@ export class Net {
           case 'kicked': this.onKicked(); break;
           case 'saveNow': this.onSaveNow(); break;
           case 'welcome':
-            clearTimeout(timer); this.online = true; this.id = m.id; this.slot = m.slot;
+            clearTimeout(timer); this.online = true; this.id = m.id; this.slot = m.slot; this.max = m.max || 12;
             this.welcome = { user: m.user, cartel: m.cartel, boss: m.boss, save: m.save, isNew: m.isNew };
             try { localStorage.setItem('td-server', url); } catch { /* */ }
             finish('ok'); break;
@@ -96,5 +98,5 @@ export class Net {
   bye() { this.send({ t: 'bye' }); }
   player(id: number) { return this.players.find(p => p.id === id); }
   /** Place des autres dans TA vue : ta base est toujours à l'origine, les autres sur les emplacements autour. */
-  relSlot(p: PlayerInfo) { return ((p.slot - this.slot + 6) % 6) - 1; }
+  relSlot(p: PlayerInfo) { return ((p.slot - this.slot + this.max) % this.max) - 1; }
 }

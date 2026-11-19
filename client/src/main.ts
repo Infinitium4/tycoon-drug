@@ -25,7 +25,7 @@ const state = await new Promise<ReturnType<typeof createGame>>(resolve => {
   ov.innerHTML = `<div class="start-card"><div class="logo">TYCOON <span>DRUG</span></div>
     <p>Une plantation, un séchoir, un charbonneur. Le reste, c'est toi qui le construis.</p>
     <label>Mode de jeu</label>
-    <div class="mode"><button data-m="solo">Solo</button><button data-m="online">En ligne (6 max)</button></div>
+    <div class="mode"><button data-m="solo">Solo</button><button data-m="online">En ligne</button></div>
     <div class="acc online-only"><label>Pseudo (ton compte)</label><input id="uname" maxlength="20" placeholder="ex : nils" autocomplete="username">
       <label>Mot de passe</label><input id="upass" type="password" maxlength="100" autocomplete="current-password">
       <div class="hint">Pas encore de compte ? Il est créé tout seul à la première connexion.</div></div>
@@ -71,7 +71,7 @@ const state = await new Promise<ReturnType<typeof createGame>>(resolve => {
     const r = await net.connect($('srv').value.trim(), { user: $('uname').value.trim(), pass: $('upass').value, cartel, boss, fresh });
     busy = false; $('cgo').textContent = 'Jouer';
     if (r === 'auth') { err(net.error); return; }
-    if (r === 'full') { err('La ville est pleine (6 joueurs). Réessaie plus tard ou joue en solo.'); return; }
+    if (r === 'full') { err('La ville est pleine. Réessaie plus tard ou joue en solo.'); return; }
     if (r === 'fail') { err('Serveur injoignable. Vérifie l\'adresse, ou joue en solo.'); return; }
     try { localStorage.setItem('td-user', net.welcome!.user); } catch { /* */ }
     const w = net.welcome!;

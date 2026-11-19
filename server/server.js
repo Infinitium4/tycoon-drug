@@ -1,5 +1,5 @@
 // Serveur multijoueur Tycoon Drug.
-// - Une seule ville, partie infinie, 6 joueurs max.
+// - Une seule ville, partie infinie, 12 joueurs par défaut (MAX_PLAYERS, jusqu'à 20).
 // - Pas de sauvegarde : si tu quittes (ou si tu tombes), ta base disparaît.
 // - Sert aussi le jeu : tes potes ouvrent http://<ton-ip>:2567 et jouent directement.
 //
@@ -13,7 +13,7 @@ const { createStore, hashPassword, checkPassword } = require('./store');
 let store = null;   // comptes + sauvegardes (PostgreSQL ou fichier)
 
 const PORT = Number(process.env.PORT || 2567);
-const MAX = 6;
+const MAX = Math.min(20, Math.max(2, Number(process.env.MAX_PLAYERS || 12)));   // joueurs simultanés (2 à 20)
 const N_DISTRICTS = 16;
 const MAX_PER_IP = Number(process.env.MAX_PER_IP || 3);            // connexions simultanées par adresse IP
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';               // derrière Nginx/Traefik : lire X-Forwarded-For
@@ -52,6 +52,7 @@ const server = http.createServer((req, res) => {
     res.end(req.method === 'HEAD' ? undefined : data);
   });
 });
+server.on('error', e => { console.error(e.code === 'EADDRINUSE' ? `Le port ${PORT} est déjà utilisé (un autre serveur tourne ?).` : e.message); process.exit(1); });
 server.on('clientError', (_e, socket) => { try { socket.end('HTTP/1.1 400 Bad Request\r\n\r\n'); } catch { /* */ } });
 
 const ipOf = req => (TRUST_PROXY && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket.remoteAddress || '?';
@@ -77,6 +78,7 @@ const news = (text, except) => broadcast({ t: 'news', text }, except);
 const clean = (v, n = 24) => String(v ?? '').replace(/[<>&"'`\u0000-\u001f\u007f-\u009f​-‏‪-‮]/g, '').trim().slice(0, n) || '???';
 /** Nombre venant d'un client : fini, borné. */
 const USER_RE = /^[a-zA-Z0-9_-]{3,20}$/;
+const LOGIN_PER_MIN = Number(process.env.LOGIN_PER_MIN || 10);   // connexions à un compte par minute et par IP (anti force brute)
 const loginTries = new Map();   // ip -> horodatages des tentatives de connexion (anti force brute)
 const num = (v, lo, hi) => { const x = Number(v); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : lo; };
 
@@ -198,7 +200,7 @@ wss.on('connection', (ws, req) => {
 async function login(p, m) {
   const ip = p.ip, now = Date.now();
   const tries = (loginTries.get(ip) || []).filter(t => now - t < 60_000);
-  if (tries.length >= 10) { send(p, { t: 'auth', error: 'Trop d\'essais, attends une minute.' }); p.ws.close(); return; }
+  if (tries.length >= LOGIN_PER_MIN) { send(p, { t: 'auth', error: 'Trop d\'essais, attends une minute.' }); p.ws.close(); return; }
   tries.push(now); loginTries.set(ip, tries);
   const user = String(m.user ?? ''), pass = String(m.pass ?? '');
   if (!USER_RE.test(user)) { send(p, { t: 'auth', error: 'Pseudo : 3 à 20 caractères (lettres, chiffres, - et _).' }); p.ws.close(); return; }
