@@ -46,6 +46,7 @@ export class Net {
   onNews: (text: string) => void = () => {};
   onLost: () => void = () => {};
   onKicked: () => void = () => {};
+  onBanned: (msg: string) => void = () => {};
   onSaveNow: () => void = () => {};
   welcome: Welcome | null = null;
   error = '';
@@ -65,7 +66,7 @@ export class Net {
         let m: any; try { m = JSON.parse(e.data); } catch { return; }
         switch (m.t) {
           case 'full': clearTimeout(timer); finish('full'); break;
-          case 'auth': clearTimeout(timer); this.error = m.error; finish('auth'); break;
+          case 'auth': clearTimeout(timer); this.error = m.error; if (this.online) { this.online = false; this.players = []; this.onBanned(m.error); } finish('auth'); break;
           case 'kicked': this.onKicked(); break;
           case 'saveNow': this.onSaveNow(); break;
           case 'welcome':

@@ -3,8 +3,8 @@
 // ---------------- Bâtiments ----------------
 export type BizKey = 'clopes' | 'armes' | 'casse' | 'aero' | 'port';
 export const BIZ_KEYS: BizKey[] = ['clopes', 'armes', 'casse', 'aero', 'port'];
-export type StationKey = 'field' | 'dryer' | 'packer' | 'garage' | 'office' | 'labo' | 'pharma' | 'milice' | 'villa' | 'transport' | 'entrepot' | BizKey;
-export const STATION_KEYS: StationKey[] = ['villa', 'field', 'dryer', 'packer', 'garage', 'office', 'labo', 'pharma', 'milice', 'transport', 'entrepot', ...BIZ_KEYS];
+export type StationKey = 'field' | 'dryer' | 'packer' | 'garage' | 'office' | 'labo' | 'pharma' | 'milice' | 'villa' | 'transport' | 'entrepot' | 'conteneurs' | BizKey;
+export const STATION_KEYS: StationKey[] = ['villa', 'field', 'dryer', 'packer', 'garage', 'office', 'labo', 'pharma', 'milice', 'transport', 'entrepot', 'conteneurs', ...BIZ_KEYS];
 export type LabKey = 'labo' | 'pharma';
 export const LAB_KEYS: LabKey[] = ['labo', 'pharma'];
 
@@ -20,6 +20,7 @@ export const STATIONS: Record<StationKey, { name: string; desc: string; baseCost
   clopes:  { name: 'Contrebande',     desc: 'Cartouches de clopes passées en Belgique et revendues sous le manteau', baseCost: 250,  unlock: 6000 },
   armes:   { name: 'Armurerie',       desc: 'Kalachs et pompes des Balkans : ça rapporte gros et ça arme la milice', baseCost: 2500, unlock: 40000 },
   casse:   { name: 'Casse auto',      desc: 'Voitures volées, désossées et revendues en pièces détachées',         baseCost: 900,  unlock: 18000 },
+  conteneurs: { name: 'Parc à conteneurs', desc: 'Hangars où les poids lourds ramènent les conteneurs du port : on les dépote et on encaisse', baseCost: 150000, unlock: 8000000 },
   port:    { name: 'Port',            desc: 'Un cargo à quai : conteneurs de came à l\'arrivée, l\'entrepôt part à l\'export', baseCost: 200000, unlock: 8000000 },
   aero:    { name: 'Aérodrome',       desc: 'Un avion cargo par vol : la came arrive directement de l\'étranger', baseCost: 60000, unlock: 3000000 },
   transport: { name: 'Transporteurs',  desc: 'Plus de transpalettes, plus gros, plus rapides : les labos et l\'entrepôt débitent plus', baseCost: 900, unlock: 15000 },
@@ -28,13 +29,14 @@ export const STATIONS: Record<StationKey, { name: string; desc: string; baseCost
 };
 
 // ---------------- Terrains & business annexes ----------------
-export type LandKey = 'ouest' | 'nord' | 'aero' | 'port';
-export const LAND_KEYS: LandKey[] = ['ouest', 'nord', 'aero', 'port'];
+export type LandKey = 'ouest' | 'nord' | 'est' | 'aero' | 'port';
+export const LAND_KEYS: LandKey[] = ['ouest', 'nord', 'est', 'aero', 'port'];
 export const LANDS: Record<LandKey, { name: string; price: number; x0: number; x1: number; z0: number; z1: number }> = {
   ouest: { name: 'Terrain ouest', price: 12000, x0: -45, x1: -22.5, z0: -22, z1: 6.5 },
   nord:  { name: 'Terrain nord',  price: 45000, x0: -18, x1: 18.8,  z0: -46, z1: -26 },
   aero:  { name: 'Terrain de l\'aérodrome', price: 1500000, x0: -132, x1: -54, z0: -42, z1: -4 },
-  port:  { name: 'Quai du port', price: 4000000, x0: 72, x1: 136, z0: 184, z1: 204 },
+  est:   { name: 'Terrain est', price: 600000, x0: 23, x1: 47, z0: -40, z1: 4 },
+  port:  { name: 'Quai du port', price: 4000000, x0: 72, x1: 138, z0: 184, z1: 204 },
 };
 /** Chaque business annexe : sur quel terrain, où, et ce qu'il rapporte. */
 export const BIZ: Record<BizKey, { land: LandKey; x: number; z: number; income: number; heat: number; color: string; sign: string }> = {
@@ -42,7 +44,7 @@ export const BIZ: Record<BizKey, { land: LandKey; x: number; z: number; income: 
   armes:   { land: 'ouest', x: -36,  z: -15, income: 26, heat: 0.04, color: '#64748b', sign: 'BALKAN IMPORT' },
   casse:   { land: 'nord',  x: 0,    z: -36, income: 10, heat: 0.03, color: '#ea580c', sign: 'CASSE DU NORD' },
   aero:    { land: 'aero',  x: -93,  z: -23, income: 0,  heat: 0.05, color: '#0ea5e9', sign: 'AÉRO-CLUB' },
-  port:    { land: 'port',  x: 92,   z: 192, income: 0,  heat: 0.06, color: '#0d9488', sign: 'TRANSIT MARITIME' },
+  port:    { land: 'port',  x: 100,   z: 192, income: 0,  heat: 0.06, color: '#0d9488', sign: 'TRANSIT MARITIME' },
 };
 export const inLand = (k: LandKey, x: number, z: number, m = 0) => { const l = LANDS[k]; return x > l.x0 - m && x < l.x1 + m && z > l.z0 - m && z < l.z1 + m; };
 
@@ -139,6 +141,8 @@ export const stats = {
     capMult: 1 + 0.12 * L,
     speedMult: up(L + 1, 0.04),
   }),
+  /** Parc à conteneurs : poids lourds, place dans les hangars, temps pour dépoter un conteneur, bonus. */
+  conteneurs: (L: number) => ({ trucks: L === 0 ? 0 : Math.min(6, 1 + Math.floor(L / 4)), capacity: L === 0 ? 0 : 6 + 2 * L, open: L === 0 ? 0 : Math.max(3, 14 - L * 0.4), payMult: 1 + 0.03 * L }),
   /** Entrepôt : capacité, débit de rangement (dépend aussi des transporteurs), prime à l'export. */
   entrepot: (L: number, T = 0) => ({
     capacity: L === 0 ? 0 : Math.round(150 * Math.pow(L, 1.15)),
@@ -160,10 +164,11 @@ export const stats = {
 };
 
 // ---------------- Milice : opérations ----------------
-export type OpKey = 'intimidate' | 'killcop' | 'rival';
+export type OpKey = 'intimidate' | 'killcop' | 'rival' | 'carnage';
 export const OPS: Record<OpKey, { name: string; desc: string; cooldown: number; difficulty: number; heatWin: number; heatFail: number; lossFail: number; grip?: number }> = {
   intimidate: { name: 'Menacer le commissariat', desc: 'Le convoi passe devant le comico, message reçu',      cooldown: 45,  difficulty: 3,  heatWin: -20, heatFail: 10, lossFail: 1, grip: 25 },
   killcop:    { name: 'Attaquer le commissariat', desc: 'Plus personne n\'ose enquêter… si ça marche',  cooldown: 120, difficulty: 7,  heatWin: -45, heatFail: 30, lossFail: 2, grip: 45 },
+  carnage:    { name: 'Carnage en ville', desc: 'Tout le convoi débarque et tire dans le tas : gang du coin, flics, renforts. La rue se vide, le quartier est à toi', cooldown: 180, difficulty: 8, heatWin: 30, heatFail: 45, lossFail: 2, grip: 15 },
   rival:      { name: 'Descente chez',       desc: 'Reprendre un point de deal à une bande rivale',        cooldown: 30,  difficulty: 0,  heatWin: 8,   heatFail: 5,  lossFail: 1 },
 };
 export const MILICE_REPEL = 4;     // puissance minimale pour faire fuir une descente de police
@@ -310,7 +315,7 @@ export const MISSIONS: Mission[] = [
 export const VISUAL_TIERS: Record<StationKey, number[]> = {
   field: [1, 10, 25], dryer: [1, 10, 25], packer: [1, 12, 25], garage: [1, 10, 22], office: [1, 10, 25],
   labo: [1, 8, 18], pharma: [1, 8, 18], milice: [1, 6, 14],
-  clopes: [1, 8, 18], armes: [1, 8, 18], casse: [1, 8, 18], transport: [1, 6, 15], entrepot: [1, 8, 18], aero: [1, 6, 15], port: [1, 6, 15], villa: [1, 8, 20, 40],
+  clopes: [1, 8, 18], armes: [1, 8, 18], casse: [1, 8, 18], transport: [1, 6, 15], entrepot: [1, 8, 18], conteneurs: [1, 8, 18], aero: [1, 6, 15], port: [1, 6, 15], villa: [1, 8, 20, 40],
 };
 export const VEHICLE_TIERS = [1, 5, 15, 30];          // moto -> pick-up -> utilitaire -> SUV
 export const TOWER_LEVELS = [2, 4, 7, 10, 14, 18];      // miradors qui se construisent avec le QG
@@ -381,6 +386,14 @@ export const SEA_Z = 204;
 export const PORT_ROAD_X = 84;
 
 /** Stations qui demandent un terrain sans être des business. */
-export const STATION_LAND: Partial<Record<StationKey, LandKey>> = { transport: 'ouest', entrepot: 'nord' };
+export const STATION_LAND: Partial<Record<StationKey, LandKey>> = { transport: 'ouest', entrepot: 'nord', conteneurs: 'est' };
+export const CONT_POS = { x: 35, z: -26 };
+/** Quai de chargement du parc (où les poids lourds se garent) et point d'enlèvement au port. */
+export const CONT_DOCK = { x: 41, z: -8 };
+/** Durée d'un aller-retour base -> port -> base pour un poids lourd. */
+export const SEMI_LOOP = 70;
+/** Conteneurs débarqués par cargo. */
+export const shipBoxes = (L: number) => 4 + Math.floor(L / 4);
+export const QUAY_MAX = 30;
 export const TRANSPORT_POS = { x: -26.5, z: -16 };
 export const ENTREPOT_POS = { x: 12, z: -36 };

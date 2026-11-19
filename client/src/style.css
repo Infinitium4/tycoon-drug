@@ -294,3 +294,5 @@ button.go small { font-size: 13px; opacity: .9; }
 .allyreq { position: absolute; right: 16px; top: 120px; display: flex; flex-direction: column; gap: 8px; z-index: 40; pointer-events: none; }
 .areq { pointer-events: auto; width: 290px; background: rgba(15,23,42,.96); border: 1px solid #22c55e; border-radius: 12px; padding: 12px; color: #e2e8f0; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 8px 30px rgba(0,0,0,.4); font-size: 13px; }
 .areq div { display: flex; gap: 6px; } .areq button { flex: 1; border: 0; border-radius: 8px; padding: 7px; font-weight: 700; cursor: pointer; background: #16a34a; color: #fff; } .areq button.no { background: #475569; }
+.carn { display: grid !important; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.opbtn.carnage { background: #450a0a; border-color: #b91c1c; font-size: 11px; padding: 5px 6px; } .opbtn.carnage small { color: #fca5a5; }

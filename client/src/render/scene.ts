@@ -1,6 +1,6 @@
 // Scène 3D : caméra iso, décor, et synchronisation avec l'état de la simulation.
 import * as THREE from 'three';
-import { SEA_Z, PORT_ROAD_X, shipCycle, TRANSPORT_POS, ENTREPOT_POS, STATION_LAND, OTHER_SLOTS, aeroCycle, RING, COUNTRY, VILLA, LUX_KEYS, LuxKey, BOSSES, BIZ, BIZ_KEYS, BizKey, LANDS, LAND_KEYS, LandKey, inLand, stats, COMMISSARIAT, GRIP, TOWER_POS, miliceVehicleTier, BASE_TIERS, TOWER_LEVELS, VEHICLE_TIERS, VISUAL_TIERS, tierOf, CITY, DISTRICTS, LAB_KEYS, LAYOUT, LINES, LabKey, LineKey, PRODUCTS, PRODUCT_KEYS, StationKey, blockCenter, roadX, roadZLine } from '../sim/config';
+import { CONT_POS, SEMI_LOOP, SEA_Z, PORT_ROAD_X, shipCycle, TRANSPORT_POS, ENTREPOT_POS, STATION_LAND, OTHER_SLOTS, aeroCycle, RING, COUNTRY, VILLA, LUX_KEYS, LuxKey, BOSSES, BIZ, BIZ_KEYS, BizKey, LANDS, LAND_KEYS, LandKey, inLand, stats, COMMISSARIAT, GRIP, TOWER_POS, miliceVehicleTier, BASE_TIERS, TOWER_LEVELS, VEHICLE_TIERS, VISUAL_TIERS, tierOf, CITY, DISTRICTS, LAB_KEYS, LAYOUT, LINES, LabKey, LineKey, PRODUCTS, PRODUCT_KEYS, StationKey, blockCenter, roadX, roadZLine } from '../sim/config';
 import { FIGHT_TIME, GameState, benchPos, labPile } from '../sim/sim';
 import * as M from './models';
 import { Particles, glow, nightFactor } from './fx';
@@ -78,6 +78,10 @@ export class World {
   private infantry: Unit[] = [];
   private arrivals: Arrival[] = [];
   private fightWrecks: THREE.Group[] = [];
+  private panic: Unit[] = [];
+  private semis: { g: THREE.Group; out: THREE.Vector2[]; back: THREE.Vector2[] }[] = [];
+  private quayBoxes: THREE.Group[] = [];
+  private yardBoxes: THREE.Group[] = [];
   private after: Aftermath | null = null;
   private spot = { x: 0, z: 0, com: true };
   private clk = 0;
@@ -416,6 +420,7 @@ export class World {
       for (let x = l.x0 + 4; x < l.x1; x += 4) lg.add(M.paint(x, l.z0, x, l.z1, '#b3ada2', 0.05));
       for (let z = l.z0 + 4; z < l.z1; z += 4) lg.add(M.paint(l.x0, z, l.x1, z, '#b3ada2', 0.05));
       const sides: number[][] = lk === 'ouest' ? [[l.x0, l.z0, l.x1, l.z0], [l.x0, l.z0, l.x0, l.z1], [l.x0, l.z1, -33, l.z1], [-27, l.z1, l.x1, l.z1]]
+        : lk === 'est' ? [[l.x0, l.z0, l.x1, l.z0], [l.x0, l.z0, l.x0, l.z1], [l.x1, l.z0, l.x1, l.z1], [l.x0, l.z1, 38.5, l.z1], [44.5, l.z1, l.x1, l.z1]]
         : lk === 'port' ? [[l.x0, l.z0, PORT_ROAD_X - 3, l.z0], [PORT_ROAD_X + 3, l.z0, l.x1, l.z0], [l.x0, l.z0, l.x0, l.z1], [l.x1, l.z0, l.x1, l.z1]]
         : lk === 'aero' ? [[l.x0, l.z0, l.x1, l.z0], [l.x0, l.z0, l.x0, l.z1], [l.x1, l.z0, l.x1, l.z1], [l.x0, l.z1, -73, l.z1], [-67, l.z1, l.x1, l.z1]]
         : [[l.x0, l.z0, l.x1, l.z0], [l.x0, l.z0, l.x0, l.z1], [l.x1, l.z0, l.x1, l.z1]];
@@ -425,6 +430,7 @@ export class World {
         for (let t = 0; t <= len; t += 1.8) lg.add(M.at2(M.box(0.16, 1.5, 0.16, '#475569', 0.2, 0.04), x0 + ((x1 - x0) * t) / len, z0 + ((z1 - z0) * t) / len));
       }
       if (lk === 'ouest') lg.add(M.at2(M.box(6, 0.07, 2.2, '#5b6170', 0, 0), -30, 7.4));
+      if (lk === 'est') lg.add(M.at2(M.box(6, 0.07, LAYOUT.roadZ - l.z1, '#5b6170', 0, 0), 41.5, (l.z1 + LAYOUT.roadZ) / 2));
       if (lk === 'aero') lg.add(M.at2(M.box(6, 0.07, LAYOUT.roadZ - l.z1, '#5b6170', 0, 0), -70, (l.z1 + LAYOUT.roadZ) / 2));
       bakeStatic(lg, true); lg.visible = false; this.scene.add(lg);
       const sign = M.forSale(); sign.position.set(lk === 'port' ? PORT_ROAD_X + 6 : cx, 0, lk === 'ouest' ? l.z1 - 2 : lk === 'port' ? l.z0 - 2 : l.z1 + 1.5); this.scene.add(sign);
@@ -466,12 +472,23 @@ export class World {
     for (let i = 0; i < 3; i++) this.deco(M.box(1.2, 0.15, 1.2, '#a07a4f', 0.2 + i * 0.16, 0.02), -16, -16.8);
     this.smoker = M.character('packer'); this.smoker.position.set(-15.6, 0.45, 2.2); this.smoker.rotation.y = 0.9; this.scene.add(this.smoker);
     // transporteurs (dépôt des transpalettes) et entrepôt (grand hangar)
-    for (const [k, pos, models, pw, pd] of [['transport', TRANSPORT_POS, [0, 1, 2].map(t => M.transportModel(t)), 9, 6], ['entrepot', ENTREPOT_POS, [0, 1, 2].map(t => M.entrepotModel(t)), 14, 10]] as const) {
+    for (const [k, pos, models, pw, pd] of [['transport', TRANSPORT_POS, [0, 1, 2].map(t => M.transportModel(t)), 9, 6], ['entrepot', ENTREPOT_POS, [0, 1, 2].map(t => M.entrepotModel(t)), 14, 10], ['conteneurs', CONT_POS, [0, 1, 2].map(t => M.containerYardModel(t)), 20, 14]] as const) {
       const c = this.tiered(k, pos.x, pos.z, models as THREE.Group[], 0.2);
       const plot = M.plot(pw, pd); plot.position.set(pos.x, 0, pos.z); plot.visible = false; this.scene.add(plot); this.plots[k] = plot;
       bizStations.push({ key: k, pos: new THREE.Vector3(pos.x, k === 'entrepot' ? 7.5 : 5, pos.z), meshes: [c, plot] });
     }
     for (let i = 0; i < 3; i++) { const f = M.optimize(M.forklift()); f.visible = false; this.scene.add(f); this.wareForks.push(f); }
+    // poids lourds porte-conteneurs (parc <-> port), conteneurs sur le quai et dans le parc
+    const R = RING, V3 = (pts: number[][]) => pts.map(([x, z]) => new THREE.Vector2(x, z));
+    for (let i = 0; i < 6; i++) {
+      const g = this.withLights(M.optimize(M.semi(M.CONTAINER_COLORS[i % M.CONTAINER_COLORS.length])), 1.8); g.visible = false; this.scene.add(g);
+      const sx = 25 + i * 3.2, rz = LAYOUT.roadZ;
+      const out = V3([[sx, -6], [sx, 0.6], [40.6, 0.6], [40.6, rz - 0.9], [R.x0 - 0.9, rz - 0.9], [R.x0 - 0.9, R.z1 + 0.9], [PORT_ROAD_X - 0.9, R.z1 + 0.9], [PORT_ROAD_X - 0.9, 189]]);
+      const back = V3([[PORT_ROAD_X + 0.9, 189], [PORT_ROAD_X + 0.9, R.z1 - 0.9], [R.x0 + 0.9, R.z1 - 0.9], [R.x0 + 0.9, rz + 0.9], [42.4, rz + 0.9], [42.4, 2.4], [sx, 2.4], [sx, -6]]);
+      this.semis.push({ g, out, back });
+    }
+    for (let i = 0; i < 12; i++) { const c = M.optimize(M.container(M.CONTAINER_COLORS[(i * 3) % 8])); c.rotation.y = Math.PI / 2; c.position.set(74.5 + (i % 3) * 2.6, 0.2 + Math.floor(i / 3) * 2.55, 189); c.visible = false; this.scene.add(c); this.quayBoxes.push(c); }
+    for (let i = 0; i < 24; i++) { const c = M.optimize(M.container(M.CONTAINER_COLORS[(i * 5) % 8])); const col = i % 8, h = Math.floor(i / 8); c.position.set(27 + (col % 2) * 6.4, 0.2 + h * 2.55, -22 + Math.floor(col / 2) * 2.6); c.visible = false; this.scene.add(c); this.yardBoxes.push(c); }
     // le cargo et ses camions porte-conteneurs
     this.ship = M.cargoShip(); this.ship.visible = false; this.scene.add(this.ship);
     for (let i = 0; i < 2; i++) { const t = this.withLights(M.optimize(M.lorry('fret')), 1.7); t.visible = false; this.scene.add(t); this.portTrucks.push(t); }
@@ -610,6 +627,30 @@ export class World {
     }
   }
   private boats: THREE.Group[] = [];
+  /** Les poids lourds suivent le trajet parc -> port -> parc ; le conteneur n'est visible que chargé. */
+  private syncSemis(s: GameState, time: number) {
+    const along = (pts: THREE.Vector2[], f: number) => {
+      let total = 0; const seg: number[] = [];
+      for (let i = 1; i < pts.length; i++) { const d = pts[i].distanceTo(pts[i - 1]); seg.push(d); total += d; }
+      let d = f * total;
+      for (let i = 0; i < seg.length; i++) { if (d <= seg[i]) { const a = pts[i], b = pts[i + 1], k = seg[i] ? d / seg[i] : 0; return { x: a.x + (b.x - a.x) * k, z: a.y + (b.y - a.y) * k, ry: Math.atan2(b.x - a.x, b.y - a.y) }; } d -= seg[i]; }
+      const a = pts[pts.length - 2], b = pts[pts.length - 1]; return { x: b.x, z: b.y, ry: Math.atan2(b.x - a.x, b.y - a.y) };
+    };
+    this.semis.forEach((S, i) => {
+      const m = s.semis[i]; S.g.visible = !!m; if (!m) return;
+      const ease = (t: number) => t * t * (3 - 2 * t);
+      const p = m.t < 0.45 ? along(S.out, ease(m.t / 0.45)) : m.t < 0.55 ? along(S.out, 1) : along(S.back, ease((m.t - 0.55) / 0.45));
+      if (m.t === 0) { p.x = S.out[0].x; p.z = S.out[0].y; p.ry = Math.PI; }
+      S.g.position.set(p.x, 0.05, p.z); S.g.rotation.y = lerpAngle(S.g.rotation.y, p.ry, 0.25);
+      (S.g.userData.cargo as THREE.Object3D).visible = m.load > 0;
+      if (m.t > 0 && m.t !== 0.5 && Math.random() < 0.12) this.fx.emit('exhaust', p.x - Math.sin(p.ry) * 4.5, 2.6, p.z - Math.cos(p.ry) * 4.5);
+    });
+    const K = s.cont;
+    this.quayBoxes.forEach((c, i) => (c.visible = s.levels.port > 0 && i < K.quayN));
+    this.yardBoxes.forEach((c, i) => (c.visible = s.levels.conteneurs > 0 && i < K.yardN));
+    const yard = this.tierG.conteneurs?.children.find(c => c.visible)?.userData.gantry as THREE.Group | undefined;
+    if (yard) yard.position.x = -2 + Math.sin(time * 0.25) * 3;
+  }
   /** Une rotation de cargo : arrivée par l'est, accostage, portiques qui déchargent, départ vers l'ouest. */
   private syncPort(s: GameState, time: number) {
     if (this.seaTex) { this.seaTex.offset.x = time * 0.004; this.seaTex.offset.y = Math.sin(time * 0.2) * 0.01; }
@@ -993,7 +1034,7 @@ export class World {
   private syncFight(s: GameState, time: number) {
     const dt = Math.min(0.1, Math.max(0, time - this.lastT)); this.lastT = time;
     const op = s.op, phase = op?.phase ?? '';
-    const atCom = !!op && op.key !== 'rival';
+    const atCom = !!op && op.key !== 'rival' && op.key !== 'carnage', carnage = op?.key === 'carnage';
     if (phase === 'fight' && this.lastPhase !== 'fight' && op) {
       this.clearFight(); this.comFireOut = false;
       const res = op.result!;
@@ -1008,6 +1049,20 @@ export class World {
         for (const dz of [-0.5, 0.5]) this.enemies.push(this.unit('bac', 0, 0, spot.x + 10.9, rz + dz, { ride: bac, appear: 3.2 }));
         const gv = this.driveIn(M.optimize(M.vanOf('gign')), spot.x + 55, rz, spot.x + 14, rz, 2.2);
         for (let i = 0; i < 4; i++) { const cx = spot.x + 16.4 + (i >> 1) * 0.8, cz = rz + (i % 2 ? 0.45 : -0.45); this.enemies.push(this.unit('gign', 0, 0, cx, cz, { ride: gv, appear: 5, px: spot.x + 15.6, pz: rz + (i % 2 ? 1.35 : -1.35) })); }
+      } else if (carnage) {
+        // le gang du coin (s'il y en a un), puis les flics qui débarquent par la rue ; les passants détalent
+        if (res.rivals > 0) for (let i = 0; i < 5; i++) { const x = spot.x + 0.3 + (i % 2) * 1.4, z = spot.z - 3.4 + i * 1.5; this.enemies.push(this.unit('rival', x, z, x, z)); }
+        const rx = spot.x - 4.3;
+        const bac = this.driveIn(this.withLights(M.optimize(M.bacCar()), 1.4), rx, spot.z + 45, rx, spot.z + 11, 1.2);
+        for (const dx of [-0.6, 0.6]) this.enemies.push(this.unit('bac', 0, 0, rx + dx + 1.6, spot.z + 9.6, { ride: bac, appear: 3.5 }));
+        const cv = this.driveIn(this.withLights(M.optimize(M.bacCar()), 1.4), rx, spot.z - 45, rx, spot.z - 10, 2.4);
+        for (const dx of [-0.6, 0.6]) this.enemies.push(this.unit('cop', 0, 0, rx + dx + 1.6, spot.z - 8.6, { ride: cv, appear: 4.6 }));
+        const gv = this.driveIn(M.optimize(M.vanOf('gign')), rx, spot.z + 60, rx, spot.z + 17, 4.2);
+        for (let i = 0; i < 4; i++) this.enemies.push(this.unit('gign', 0, 0, rx + 1.4 + (i % 2) * 0.9, spot.z + 15.5 - (i >> 1) * 0.9, { ride: gv, appear: 7 }));
+        for (let i = 0; i < 12; i++) {
+          const a = Math.random() * Math.PI * 2, x = spot.x + Math.cos(a) * 6, z = spot.z + Math.sin(a) * 8;
+          const u = this.unit('civil', x, z, x, z); u.flee = { x: x + Math.cos(a) * 30, z: z + Math.sin(a) * 30 }; u.ph = Math.random() * 0.6; this.panic.push(u);
+        }
       } else {
         for (let i = 0; i < 6; i++) { const x = spot.x + 0.3 + (i % 2) * 1.4, z = spot.z - 3.4 + i * 1.3; this.enemies.push(this.unit('rival', x, z, x, z)); }
       }
@@ -1021,10 +1076,10 @@ export class World {
         }
       });
       // qui tombe et quand
-      const nDead = Math.min(this.enemies.length, atCom ? res.cops + (res.win ? 2 : 0) : res.rivals);
+      const nDead = Math.min(this.enemies.length, atCom ? res.cops + (res.win ? 2 : 0) : carnage ? res.cops + res.rivals : res.rivals);
       [...this.enemies].sort(() => Math.random() - 0.5).slice(0, nDead).forEach((e, i) => (e.dieAt = Math.max(e.appear + 0.8, FIGHT_TIME * (0.12 + (0.8 * i) / Math.max(1, nDead)))));
       [...this.infantry].sort(() => Math.random() - 0.5).slice(0, res.ours).forEach((u, i) => (u.dieAt = FIGHT_TIME * (0.3 + 0.4 * i)));
-      this.booms = atCom ? [2.2, 4.6, 6.8] : [2.6, 5.8];
+      this.booms = atCom ? [2.2, 4.6, 6.8] : carnage ? [1.8, 3.6, 5.4, 7.6] : [2.6, 5.8];
       this.clk = 0;
     }
     if (phase === 'fight' && op) this.clk = op.t; else this.clk += dt;
@@ -1044,6 +1099,8 @@ export class World {
     this.lastPhase = phase;
     this.stepArrivals(dt, time);
     this.stepPress(dt, time);
+    for (const u of this.panic) { if (u.ph > 0) { u.ph -= dt; continue; } if (this.runTo(u, u.flee!.x, u.flee!.z, dt, time, 6.5)) u.dead = 2; }
+    this.panic = this.panic.filter(u => { if (u.dead === 2) { this.scene.remove(u.g); return false; } return true; });
     for (const p of this.pools) { p.t += dt; p.m.scale.setScalar(Math.min(1, 0.05 + p.t * 0.35)); }
     // épaves : en feu (flammes + fumée noire) ou éteintes (vapeur)
     const fires: THREE.Vector3[] = [];
@@ -1389,8 +1446,9 @@ export class World {
     }
     this.syncPlane(s, time);
     this.syncPort(s, time);
+    this.syncSemis(s, time);
     this.syncLoops(s, time);
-    for (const k of ['transport', 'entrepot'] as const) this.plots[k]!.visible = s.levels[k] === 0 && s.land[STATION_LAND[k]!];
+    for (const k of ['transport', 'entrepot', 'conteneurs'] as const) this.plots[k]!.visible = s.levels[k] === 0 && s.land[STATION_LAND[k]!];
     // transpalettes de l'entrepôt : va-et-vient entre les racks et les quais, caisse à l'aller
     const nw = s.levels.entrepot > 0 ? stats.transport(s.levels.transport).forks : 0, EP = ENTREPOT_POS;
     this.wareForks.forEach((f, i) => {

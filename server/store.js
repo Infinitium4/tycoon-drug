@@ -49,7 +49,8 @@ async function pgStore(url) {
       earned    double precision not null default 0,
       reason    text not null,
       ended_at  timestamptz not null default now()
-    );`);
+    );
+    alter table accounts add column if not exists banned boolean not null default false;`);
   return {
     kind: 'PostgreSQL',
     async get(user) { const r = await pool.query('select * from accounts where username_lc = $1', [user.toLowerCase()]); return r.rows[0] || null; },
@@ -57,6 +58,7 @@ async function pgStore(url) {
       await pool.query('insert into accounts (username, username_lc, pass_hash, cartel, boss, last_login) values ($1, $2, $3, $4, $5, now())', [user, user.toLowerCase(), hash, cartel, boss]);
     },
     async login(user) { await pool.query('update accounts set last_login = now() where username_lc = $1', [user.toLowerCase()]); },
+    async banned(users) { if (!users.length) return []; const r = await pool.query('select username_lc from accounts where banned and username_lc = any($1)', [users.map(u => u.toLowerCase())]); return r.rows.map(x => x.username_lc); },
     async save(user, data) { await pool.query('update accounts set save = $2, saved_at = now() where username_lc = $1', [user.toLowerCase(), data]); },
     async reset(user, cartel, boss) { await pool.query('update accounts set save = null, cartel = $2, boss = $3 where username_lc = $1', [user.toLowerCase(), cartel, boss]); },
     async gameOver(user, cartel, boss, earned, reason) {
@@ -82,6 +84,8 @@ function fileStore(dir) {
     async get(user) { return acc(user) || null; },
     async create(user, hash, cartel, boss) { db.accounts[user.toLowerCase()] = { username: user, pass_hash: hash, cartel, boss, save: null, created_at: new Date().toISOString() }; persist(); },
     async login(user) { const a = acc(user); if (a) { a.last_login = new Date().toISOString(); persist(); } },
+    // sans base : mettre "banned": true sur le compte dans data/accounts.json (relu toutes les 20 s)
+    async banned(users) { if (!timer) try { db.accounts = JSON.parse(fs.readFileSync(file, 'utf8')).accounts || db.accounts; } catch { /* */ } return users.filter(u => acc(u)?.banned === true).map(u => u.toLowerCase()); },
     async save(user, data) { const a = acc(user); if (a) { a.save = data; a.saved_at = new Date().toISOString(); persist(); } },
     async reset(user, cartel, boss) { const a = acc(user); if (a) { Object.assign(a, { save: null, cartel, boss }); persist(); } },
     async gameOver(user, cartel, boss, earned, reason) {

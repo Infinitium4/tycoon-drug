@@ -263,6 +263,7 @@ async function login(p, m) {
   } else if (!(await checkPassword(pass, acc.pass_hash))) {
     send(p, { t: 'auth', error: 'Mot de passe incorrect pour ce pseudo.' }); p.ws.close(); return;
   }
+  if (acc.banned) { send(p, { t: 'auth', error: 'Ce compte est banni.' }); p.ws.close(); console.log(`[ban] connexion refusée : ${acc.username} (${ip})`); return; }
   if (p.ws.readyState !== 1) return;
   // « Nouvelle partie » : on efface la sauvegarde et on prend les nouveaux noms
   if (m.fresh === true && !isNew) { await store.reset(user, clean(m.cartel), clean(m.boss, 20)); acc = await store.get(user); }
@@ -276,6 +277,18 @@ async function login(p, m) {
   news(acc.save ? `Le cartel ${acc.cartel} est de retour en ville` : `Un nouveau cartel débarque en ville : ${acc.cartel}`, p);
 }
 
+// bannissements faits en base pendant la partie : le joueur est éjecté (vérifié toutes les 20 s)
+setInterval(async () => {
+  const online = [...players.values()].filter(p => p.user);
+  if (!online.length) return;
+  try {
+    const ban = new Set(await store.banned(online.map(p => p.user)));
+    for (const p of online) if (ban.has(p.user.toLowerCase())) {
+      send(p, { t: 'auth', error: 'Ce compte est banni.' }); p.ws.close(4003, 'banni');
+      console.log(`[ban] ${p.user} éjecté`);
+    }
+  } catch (e) { console.error('[ban]', e.message); }
+}, 20_000);
 // recharge des jetons de débit
 setInterval(() => { for (const p of players.values()) p.bucket = Math.min(20, p.bucket + 10); }, 1000);
 // connexions mortes (onglet fermé brutalement, réseau coupé) : ping toutes les 30 s

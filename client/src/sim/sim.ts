@@ -1,7 +1,7 @@
 // Simulation pure (aucune dépendance 3D) : c'est ce qui passera côté serveur plus tard.
 import {
   BAC, CITY, COMMISSARIAT, DISTRICTS, GRIP, MILICE_PARK, QG_POSTS, TOWER_LEVELS, TOWER_POS, miliceVehicles, pressureLevel, roadZLine, HEAT, LAB_KEYS, LAYOUT, LINES, LabKey, LineKey, MILICE_REPEL, OPS, OpKey, PATROL, PRODUCTS, PRODUCT_KEYS,
-  ProductKey, RIVAL, START_CASH, StationKey, blockCenter, roadX, stats, upgradeCost, BIZ, BIZ_KEYS, BizKey, LANDS, LandKey, LUX, LUX_KEYS, LuxKey, PRESTIGE_PER_LUX, HITS, HitKey, hitCost, VILLA, COUNTRY, COUNTRY_HIDE, COUNTRY_PRESTIGE, ROUTES, RouteKey, ROUTE_KEYS, aeroCycle, aeroCargo, shipCycle, shipCargo, STATION_LAND,
+  ProductKey, RIVAL, START_CASH, StationKey, blockCenter, roadX, stats, upgradeCost, BIZ, BIZ_KEYS, BizKey, LANDS, LandKey, LUX, LUX_KEYS, LuxKey, PRESTIGE_PER_LUX, HITS, HitKey, hitCost, VILLA, COUNTRY, COUNTRY_HIDE, COUNTRY_PRESTIGE, ROUTES, RouteKey, ROUTE_KEYS, aeroCycle, aeroCargo, shipCycle, shipCargo, STATION_LAND, SEMI_LOOP, shipBoxes, QUAY_MAX,
 } from './config';
 
 export interface Vec { x: number; z: number }
@@ -30,7 +30,9 @@ export interface Van extends Vec {
   wp: number; wait: number; dest: number; slot: number; facing: number;
 }
 export interface Forklift extends Vec { id: number; lab: LabKey; idx: number; state: 'wait' | 'out' | 'back'; load: number; wp: number; facing: number }
-export interface DistrictState { unlocked: boolean; active: boolean; sat: number; rival: number }
+export interface DistrictState { unlocked: boolean; active: boolean; sat: number; rival: number; fear?: number }
+/** Poids lourd : t = 0 au parc, 0.5 au port ; load = valeur du conteneur chargé (0 = à vide). */
+export interface Semi { t: number; load: number; color: number }
 export interface Police { phase: 'coming' | 'waiting' | 'leaving'; x: number; z: number; t: number; facing: number; gign?: boolean }
 export interface ConvoyCar extends Vec { id: number; slot: number; facing: number; path: Vec[]; back: Vec[]; firing: boolean }
 export interface Patrol extends Vec { id: number; from: [number, number]; to: [number, number]; t: number; facing: number }
@@ -38,6 +40,7 @@ export interface OpResult { win: boolean; cops: number; rivals: number; ours: nu
 export interface Op { key: OpKey; target: number; phase: 'go' | 'fight' | 'back'; t: number; result?: OpResult }
 
 export type SimEvent =
+  | { type: 'ship'; boxes: number; lost: number }
   | { type: 'sale'; amount: number; x: number; z: number; district: number }
   | { type: 'robbed'; district: number }
   | { type: 'controlled'; district: number; lost: number }
@@ -48,7 +51,7 @@ export type SimEvent =
   | { type: 'opResult'; key: OpKey; win: boolean; target: number; cops: number; rivals: number; ours: number }
   | { type: 'desert' }
   | { type: 'rivalBack'; district: number }
-  | { type: 'biz'; key: BizKey; amount: number; x: number; z: number }
+  | { type: 'biz'; key: BizKey | 'conteneurs'; amount: number; x: number; z: number }
   | { type: 'hit'; key: HitKey; target: number; win: boolean }
   | { type: 'saved' };
 
@@ -63,6 +66,10 @@ export interface GameState {
   stock: Record<ProductKey, number>;
   /** Marchandise rangée à l'entrepôt : à l'abri des saisies, part à l'export. */
   ware: Record<ProductKey, number>;
+  /** Conteneurs : sur le quai du port, dans les hangars du parc (nombre et valeur totale). */
+  cont: { quayN: number; quayV: number; yardN: number; yardV: number };
+  semis: Semi[];
+  contT: number;
   labs: Record<LabKey, { out: number }>;
   selected: Record<LineKey, ProductKey>;
   owned: Record<ProductKey, boolean>;
@@ -110,19 +117,19 @@ export function createGame(): GameState {
   const zero = Object.fromEntries(PRODUCT_KEYS.map(k => [k, 0])) as Record<ProductKey, number>;
   const s: GameState = {
     cash: START_CASH,
-    levels: { field: 1, dryer: 1, packer: 1, garage: 1, office: 1, labo: 0, pharma: 0, milice: 0, villa: 1, clopes: 0, armes: 0, casse: 0, aero: 0, port: 0, transport: 0, entrepot: 0 },
+    levels: { field: 1, dryer: 1, packer: 1, garage: 1, office: 1, labo: 0, pharma: 0, milice: 0, villa: 1, clopes: 0, armes: 0, casse: 0, aero: 0, port: 0, transport: 0, entrepot: 0, conteneurs: 0 },
     plants, agents: [], vans: [], forklifts: [],
     dryer: { input: 0, output: 0, busy: false, t: 0, amt: 0 },
-    stock: { ...zero }, ware: { ...zero },
+    stock: { ...zero }, ware: { ...zero }, cont: { quayN: 0, quayV: 0, yardN: 0, yardV: 0 }, semis: [], contT: 0,
     labs: { labo: { out: 0 }, pharma: { out: 0 } },
     selected: { cannabis: 'beuh', labo: 'ecsta', pharma: 'pregabaline' },
     owned: Object.fromEntries(PRODUCT_KEYS.map(k => [k, PRODUCTS[k].unlock === 0])) as Record<ProductKey, boolean>,
     time: 0,
     districts: DISTRICTS.map(d => ({ unlocked: d.unlock === 0, active: d.unlock === 0, sat: 0, rival: d.rival })),
     heat: 0, police: null, patrols: [], convoy: [], grip: 0, cartel: 'Sans Nom', kills: { cops: 0, rivals: 0, ours: 0 }, comDamage: 0, op: null,
-    cooldowns: { intimidate: 0, killcop: 0, rival: 0 },
+    cooldowns: { intimidate: 0, killcop: 0, rival: 0, carnage: 0 },
     unpaid: 0, rivalTimer: 0, over: false, totalEarned: 0,
-    land: { ouest: false, nord: false, aero: false, port: false }, bizT: { clopes: 0, armes: 1, casse: 2, aero: 0, port: 0 },
+    land: { ouest: false, nord: false, est: false, aero: false, port: false }, bizT: { clopes: 0, armes: 1, casse: 2, aero: 0, port: 0 },
     boss: 'Le Boss', lux: Object.fromEntries(LUX_KEYS.map(k => [k, false])) as Record<LuxKey, boolean>,
     hit: null, hitCd: { boss: 0, planque: 0, commissaire: 0, journaliste: 0, temoin: 0, joueur: 0 }, immunity: false, country: COUNTRY.map(() => false), satOut: DISTRICTS.map(() => 0), satCtl: DISTRICTS.map(() => 0), route: 'maroc', routes: Object.fromEntries(ROUTE_KEYS.map(k => [k, ROUTES[k].unlock === 0])) as Record<RouteKey, boolean>,
   };
@@ -260,9 +267,13 @@ function stepBiz(s: GameState, dt: number, events: SimEvent[]) {
       // un cargo par rotation : payé quand les conteneurs sont déchargés
       if (s.bizT.port >= shipCycle(L)) {
         s.bizT.port = 0;
-        const amount = shipCargo(L, s.route) + exportWare(s);
-        s.cash += amount; s.totalEarned += amount; s.heat = Math.min(99, s.heat + 3 * ROUTES[s.route].heat);
-        events.push({ type: 'biz', key: 'port', amount, x: BIZ.port.x, z: BIZ.port.z });
+        // la came reste dans les conteneurs : il faut que les poids lourds les ramènent au parc
+        const n = shipBoxes(L), each = shipCargo(L, s.route) / n, room = Math.max(0, QUAY_MAX - s.cont.quayN), put = Math.min(n, room);
+        s.cont.quayN += put; s.cont.quayV += put * each;
+        s.heat = Math.min(99, s.heat + 3 * ROUTES[s.route].heat);
+        events.push({ type: 'ship', boxes: put, lost: n - put });
+        const amount = exportWare(s);
+        if (amount > 0) { s.cash += amount; s.totalEarned += amount; events.push({ type: 'biz', key: 'port', amount, x: BIZ.port.x, z: BIZ.port.z }); }
       }
       continue;
     }
@@ -283,7 +294,7 @@ export function productPrice(s: GameState, p: ProductKey) {
 }
 export function districtFactor(s: GameState, i: number) {
   const st = s.districts[i];
-  return DISTRICTS[i].mult * (1 - 0.7 * st.sat) * (st.rival > 0 ? RIVAL.pricePenalty : 1);
+  return DISTRICTS[i].mult * (1 - 0.7 * st.sat) * (st.rival > 0 ? RIVAL.pricePenalty : 1) * (st.fear ? 1.3 : 1);
 }
 export const totalStock = (s: GameState) => PRODUCT_KEYS.reduce((a, p) => a + s.stock[p], 0);
 const byValue = (s: GameState) => PRODUCT_KEYS.slice().sort((a, b) => productPrice(s, b) - productPrice(s, a));
@@ -462,6 +473,8 @@ export function step(s: GameState, dt: number): SimEvent[] {
 
   stepBiz(s, dt, events);
   stepWarehouse(s, dt);
+  stepContainers(s, dt, events);
+  for (const d of s.districts) if (d.fear) d.fear = Math.max(0, d.fear - dt);
   stepHit(s, dt, events);
   stepPatrols(s, dt);
 
@@ -536,17 +549,18 @@ function stepPatrols(s: GameState, dt: number) {
 // ---------------- Milice ----------------
 export function opChance(s: GameState, key: OpKey, target = -1) {
   const pw = power(s);
-  const diff = key === 'rival' ? (s.districts[target]?.rival ?? 1) : OPS[key].difficulty;
+  const diff = key === 'rival' ? (s.districts[target]?.rival ?? 1) : key === 'carnage' ? OPS.carnage.difficulty + (DISTRICTS[target]?.police ?? 1) * 2 + (s.districts[target]?.rival ?? 0) * 0.5 : OPS[key].difficulty;
   return pw / (pw + diff);
 }
 export function canLaunch(s: GameState, key: OpKey, target = -1) {
   if (s.levels.milice === 0 || s.op || s.cooldowns[key] > 0) return false;
   if (key === 'rival' && (target < 0 || s.districts[target].rival <= 0)) return false;
+  if (key === 'carnage' && (target < 0 || !s.districts[target])) return false;
   return true;
 }
 /** Point d'arrivée du convoi : devant le commissariat, ou dans le quartier visé. */
 function opTarget(key: OpKey, target: number, slot: number): Vec[] {
-  if (key === 'rival') {
+  if (key === 'rival' || key === 'carnage') {
     const d = DISTRICTS[target], c = blockCenter(d.r, d.c), x = roadX(d.c) + 0.9;
     return [{ x, z: LAYOUT.roadZ - 0.9 }, { x, z: c.z + slot * 4.4 }];
   }
@@ -592,6 +606,7 @@ function rollOp(s: GameState, op: Op): OpResult {
   const before = stats.milice(s.levels.milice).soldiers, after = stats.milice(Math.max(1, s.levels.milice - OPS[op.key].lossFail)).soldiers;
   const ours = win ? (Math.random() < 0.25 ? 1 : 0) : Math.max(1, before - after);
   if (op.key === 'rival') return { win, cops: 0, rivals: win ? r(3, 5) : r(0, 2), ours };
+  if (op.key === 'carnage') { const rv = s.districts[op.target].rival > 0; return { win, cops: win ? r(3, 6) : r(1, 3), rivals: rv ? (win ? r(3, 5) : r(1, 2)) : 0, ours: win ? r(0, 1) : Math.max(1, before - after) }; }
   if (op.key === 'killcop') return { win, cops: win ? r(3, 5) : r(1, 2), rivals: 0, ours };
   return { win, cops: win ? r(0, 1) : r(0, 1), rivals: 0, ours: win ? 0 : 1 };
 }
@@ -599,12 +614,13 @@ function resolveOp(s: GameState, events: SimEvent[]) {
   const op = s.op!, def = OPS[op.key];
   const res = op.result ?? rollOp(s, op), win = res.win;
   s.kills.cops += res.cops; s.kills.rivals += res.rivals; s.kills.ours += res.ours;
-  if (op.key !== 'rival') s.comDamage = Math.min(1, s.comDamage + (op.key === 'killcop' ? 0.45 : 0.2));
+  if (op.key !== 'rival' && op.key !== 'carnage') s.comDamage = Math.min(1, s.comDamage + (op.key === 'killcop' ? 0.45 : 0.2));
   s.cooldowns[op.key] = def.cooldown;
   if (win) {
     s.heat = Math.max(0, s.heat + def.heatWin);
     if (def.grip) s.grip = Math.min(100, s.grip + def.grip);
     if (op.key === 'rival') s.districts[op.target].rival = 0;
+    if (op.key === 'carnage') { const d = s.districts[op.target]; d.rival = 0; d.fear = 180; d.sat = 0; }
   } else {
     s.heat = Math.min(100, s.heat + def.heatFail);
     s.levels.milice = Math.max(1, s.levels.milice - def.lossFail);
@@ -773,6 +789,41 @@ function stepWarehouse(s: GameState, dt: number) {
     s.stock[p] -= q; s.ware[p] += q; room -= q; budget -= q;
   }
 }
+/** Poids lourds : vont chercher les conteneurs au port, les ramènent au parc, qui les dépote un par un. */
+function stepContainers(s: GameState, dt: number, events: SimEvent[]) {
+  const C = stats.conteneurs(s.levels.conteneurs), K = s.cont;
+  while (s.semis.length < C.trucks) s.semis.push({ t: 0, load: 0, color: s.semis.length });
+  if (s.semis.length > C.trucks) s.semis.length = C.trucks;
+  let goingEmpty = s.semis.filter(m => m.t > 0 && m.t < 0.5).length;
+  for (const m of s.semis) {
+    if (m.t === 0) {                                     // garé au parc : ne part que s'il y a un conteneur à aller chercher
+      if (K.quayN - goingEmpty <= 0) continue;
+      if (s.semis.some(o => o !== m && o.t > 0 && o.t < 0.035)) continue;   // un départ à la fois (pas de convoi collé)
+      goingEmpty++;
+    }
+    const before = m.t; m.t += dt / SEMI_LOOP;
+    if (before < 0.5 && m.t >= 0.5) {                    // au port : on charge
+      if (K.quayN > 0) { const v = K.quayV / K.quayN; K.quayN--; K.quayV = Math.max(0, K.quayV - v); m.load = v; }
+    }
+    if (m.t >= 1) {                                      // retour au parc : on décharge s'il y a de la place
+      if (m.load > 0 && K.yardN >= C.capacity) { m.t = 0.999; continue; }
+      if (m.load > 0) { K.yardN++; K.yardV += m.load; m.load = 0; }
+      m.t = 0;
+    }
+  }
+  // on dépote : un conteneur à la fois
+  if (K.yardN > 0 && C.open > 0) {
+    s.contT += dt;
+    if (s.contT >= C.open) {
+      s.contT = 0;
+      const v = K.yardV / K.yardN; K.yardN--; K.yardV = Math.max(0, K.yardV - v);
+      const amount = v * C.payMult;
+      s.cash += amount; s.totalEarned += amount;
+      events.push({ type: 'biz', key: 'conteneurs', amount, x: CONT_DOCK_X, z: CONT_DOCK_Z });
+    }
+  } else s.contT = 0;
+}
+const CONT_DOCK_X = 35, CONT_DOCK_Z = -20;
 export const wareTotal = (s: GameState) => PRODUCT_KEYS.reduce((a, p) => a + s.ware[p], 0);
 /** Valeur de l'entrepôt vendu à l'étranger (prix de base × prime export × prestige). */
 export function wareValue(s: GameState) {

@@ -1,3 +1,4 @@
+import { DISTRICTS } from "./sim/config";
 import './style.css';
 import { createGame, step, syncUnits, applyExt, sufferAttack } from './sim/sim';
 import { Net, defaultServer, servedByServer } from './net';
@@ -112,6 +113,7 @@ if (net.online) {
   net.onAllyReq = m => hud.allyRequest(m.from, m.cartel, m.boss);
   net.onGift = m => { state.cash += m.amount; hud.sms('Coursier', `${m.cartel} t'envoie ${Math.round(m.amount).toLocaleString('fr-FR')} € en liquide.`, 'good'); hud.ticker(`Le cartel ${m.cartel} fait un geste envers ${state.cartel}`); };
   net.onGave = m => { state.cash = Math.max(0, state.cash - m.amount); hud.sms('Coursier', `Valise livrée à ${m.cartel} : ${Math.round(m.amount).toLocaleString('fr-FR')} €.`, 'good'); };
+  net.onBanned = msg => { state.over = true; hud.sms('Serveur', msg || 'Ce compte est banni.', 'bad'); setTimeout(() => location.reload(), 4000); };
   net.onSaveNow = saveNow;
   net.onKicked = () => hud.sms('Serveur', 'Ton compte vient de se connecter ailleurs. Cette fenêtre est déconnectée.', 'bad');
   net.onLost = () => { world.setOthers(net); soloSave(state); hud.sms('Serveur', 'Connexion perdue. Ta partie continue en local (sauvegardée dans ce navigateur).', 'bad'); };
@@ -167,7 +169,8 @@ window.addEventListener('keydown', e => {
 let last = performance.now(), uiT = 0;
 function loop(now: number) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
-  for (const ev of step(state, dt)) { hud.onEvent(ev); if (ev.type === 'arrested') { soloClear(); if (net.online) { net.dead(); net.news(`Le boss du cartel ${state.cartel} est tombé. Sa base est rasée.`); net.bye(); } } }
+  for (const ev of step(state, dt)) { hud.onEvent(ev);
+    if (ev.type === 'opResult' && ev.key === 'carnage' && ev.win && net.online) net.news(`Carnage : le cartel ${state.cartel} a vidé le quartier ${DISTRICTS[ev.target].name}. ${ev.cops + ev.rivals} morts.`); if (ev.type === 'arrested') { soloClear(); if (net.online) { net.dead(); net.news(`Le boss du cartel ${state.cartel} est tombé. Sa base est rasée.`); net.bye(); } } }
   stepKeys(dt);
   world.sync(state, now / 1000);
   world.animate(dt, now / 1000, state.time);

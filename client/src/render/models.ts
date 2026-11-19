@@ -1567,14 +1567,14 @@ export function crane(color = '#f59e0b') {
 export function portModel(tier: number) {
   const g = new THREE.Group();
   const wh = warehouse([12, 16, 20][tier], [5, 6, 7][tier], 7, '#e2e8f0', '#0f766e', 'TRANSIT MARITIME', '#0f766e');
-  wh.position.set(-6, 0, -3); g.add(wh);
+  wh.position.set(-5, 0, -3); g.add(wh);
   const r = mulberryLocal(11 + tier);
   for (let st = 0; st < 2 + tier * 2; st++) for (let h = 0; h < 1 + Math.min(2, tier) + (st % 2); h++) {
     const c = container(CONT_COLS[Math.floor(r() * CONT_COLS.length)]); c.position.set(10 + (st % 4) * 6.6, h * 2.55, -5 + Math.floor(st / 4) * 3); g.add(c);
   }
   for (let x = -14; x < 44; x += 4) g.add(at(cyl(0.3, 0.35, 0.6, '#1f2937', 8), x, 0.3, 11.4));   // bites d'amarrage
   const cranes: THREE.Group[] = [];
-  for (let i = 0; i < 1 + tier; i++) { const c = crane(i % 2 ? '#dc2626' : '#f59e0b'); c.position.set(14 + i * 11, 0, 7.5); g.add(c); cranes.push(c); }
+  for (let i = 0; i < 1 + tier; i++) { const c = crane(i % 2 ? '#dc2626' : '#f59e0b'); c.position.set(14 + i * 10, 0, 7.5); g.add(c); cranes.push(c); }
   g.add(at(box(4, 3, 3, '#cbd5e1', 0, 0.05), -20, 0, 4)); // poste de douane
   const t = textSign('DOUANE', 2.4, 0.5, '#1e3a8a', '#ffffff'); t.position.set(-20, 2.4, 5.55); g.add(t);
   g.userData.cranes = cranes;
@@ -1613,4 +1613,46 @@ export function seaTexture() {
   for (let i = 0; i < 70; i++) { x.fillStyle = 'rgba(255,255,255,0.35)'; x.fillRect(r() * 256, r() * 256, 3 + r() * 6, 1); }
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+// ---------- parc à conteneurs ----------
+export const CONTAINER_COLORS = CONT_COLS;
+/** Poids lourd : tracteur + remorque plateau, conteneur amovible (userData.cargo). Avance vers +z. */
+export function semi(color: string) {
+  const g = new THREE.Group();
+  const cab = new THREE.Group();
+  cab.add(box(2.3, 2.4, 2.2, '#e5e7eb', 0.55, 0.15)); cab.add(at(box(2.34, 0.8, 0.1, '#0f172a', 1.9, 0.02), 0, 0, 1.11));
+  cab.add(at(box(2.36, 0.3, 2.24, '#b91c1c', 1.2, 0.02), 0, 0, 0)); cab.add(at(box(2.4, 0.35, 0.3, '#1f2937', 0.2, 0.03), 0, 0, 1.2));
+  cab.add(at(box(0.2, 1.6, 0.2, '#94a3b8', 2.4, 0.02), 0.9, 0, -1));
+  cab.position.z = 4.2; g.add(cab);
+  g.add(at(box(2.2, 0.35, 9.2, '#334155', 0.55, 0.03), 0, 0, -0.6));
+  for (const z of [4.6, 3.2, -2.6, -3.8, -5]) for (const x of [-1.05, 1.05]) { const w = cyl(0.55, 0.55, 0.4, '#111827', 12); w.rotation.z = Math.PI / 2; w.position.set(x, 0.55, z); g.add(w); }
+  const cargo = container(color); cargo.rotation.y = Math.PI / 2; cargo.position.set(0, 0.9, -1.4); g.add(cargo);
+  g.userData = { cargo };
+  return g;
+}
+/** Hangar à toit cintré. */
+function archHangar(w: number, d: number, h: number, color: string) {
+  const g = new THREE.Group();
+  const sh = new THREE.Mesh(new THREE.CylinderGeometry(w / 2, w / 2, d, 20, 1, false, -Math.PI / 2, Math.PI), mat(color));
+  sh.rotation.z = Math.PI / 2; sh.rotation.y = Math.PI / 2; sh.scale.set(1, 1, h / (w / 2)); sh.position.y = 0.6; sh.castShadow = sh.receiveShadow = true;
+  g.add(sh);
+  g.add(box(w, 0.6, d, '#9ca3af', 0, 0.05));
+  const door = rollDoor(w * 0.55, h * 0.7); door.position.set(0, 0.6, d / 2 + 0.05); g.add(door);
+  for (const z of [-d / 2 + 1, d / 2 - 1]) g.add(at(box(w + 0.1, 0.12, 0.12, '#475569', h * 0.9, 0.01), 0, 0, z));
+  return g;
+}
+/** Le parc : 1 à 3 hangars cintrés, portique de manutention, bureau. Les conteneurs posés sont gérés par la scène. */
+export function containerYardModel(tier: number) {
+  const g = new THREE.Group();
+  for (let i = 0; i <= tier; i++) { const h = archHangar(7, 12, 5.5, ['#64748b', '#0f766e', '#7c2d12'][i]); h.position.set(-7 + i * 8, 0, -6); g.add(h); }
+  g.add(at(box(3.6, 2.8, 2.6, '#f1f5f9', 0, 0.06), 8.5, 0, 10));
+  const t = textSign('LOGISTIQUE', 2.6, 0.45, '#0f172a', '#facc15'); t.position.set(8.5, 2.2, 11.35); g.add(t);
+  // portique de parc (cavalier) au-dessus des piles
+  const gc = new THREE.Group();
+  for (const x of [-4, 4]) for (const z of [-1.4, 1.4]) gc.add(at(box(0.4, 9, 0.4, '#facc15', 0, 0.03), x, 0, z));
+  gc.add(at(box(8.6, 0.7, 3.4, '#facc15', 8.8, 0.04), 0, 0, 0));
+  gc.position.set(-2, 0, 6); g.add(gc);
+  g.userData.gantry = gc;
+  return g;
 }

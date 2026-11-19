@@ -128,6 +128,7 @@ export class Hud {
       casse: ['', 'Atelier monté, avec le pont et la grue.', 'La casse tourne à plein : compacteur et trois équipes.'],
       transport: ['', 'Nouveau dépôt couvert : plus de transpalettes, plus de bornes.', 'Flotte de chariots électriques : ça charge et ça file.'],
       entrepot: ['', 'Le hangar a doublé. Racks sur trois niveaux.', 'Méga-entrepôt : quais de chargement et conteneur de transit.'],
+      conteneurs: ['', 'Deuxième hangar monté, un cavalier pour empiler les boîtes.', 'Trois hangars : on dépote à la chaîne.'],
       port: ['', 'Deuxième portique monté, le hangar de transit grandit.', 'Terminal complet : trois portiques, douane dans la poche.'],
       villa: ['', 'On a emménagé dans la villa. Piscine possible, gardes au portail.', 'Le manoir est à toi. Les voisins font semblant de rien voir.', 'Le château. T\'es plus un dealer, t\'es un seigneur.'],
       base: ['', 'On a refait toute la place : dalle neuve, clôture opaque.', 'La base est blindée : murs béton et barbelés.'],
@@ -186,7 +187,7 @@ export class Hud {
     const op = t.closest('[data-op]') as HTMLElement | null;
     if (op && !(op as HTMLButtonElement).disabled) {
       const key = op.dataset.op as OpKey, target = Number(op.dataset.target ?? -1);
-      if (launchOp(s, key, target)) this.sms('Chef d\'équipe', key === 'rival' ? `Le convoi part. ${GANGS[target]}, ${DISTRICTS[target].name}.` : key === 'killcop' ? 'Le convoi part pour le comico. Ça va parler fort.' : 'On passe devant le comico, qu\'ils comprennent qui commande.', 'good');
+      if (launchOp(s, key, target)) this.sms('Chef d\'équipe', key === 'carnage' ? `Tout le monde charge. On descend ${a(DISTRICTS[target].name)}, on tire sur tout ce qui porte une arme.` : key === 'rival' ? `Le convoi part. ${GANGS[target]}, ${DISTRICTS[target].name}.` : key === 'killcop' ? 'Le convoi part pour le comico. Ça va parler fort.' : 'On passe devant le comico, qu\'ils comprennent qui commande.', 'good');
     }
     this.renderPanel(true);
   }
@@ -240,15 +241,21 @@ export class Hud {
       case 'opResult': {
         const o = OPS[ev.key];
         const morts = ev.cops + ev.rivals + ev.ours;
-        setTimeout(() => this.ticker(ev.key === 'rival'
+        setTimeout(() => this.ticker(ev.key === 'carnage'
+          ? `Carnage ${a(DISTRICTS[ev.target].name)} : ${morts} morts dont ${ev.cops} policiers, la population terrée chez elle`
+          : ev.key === 'rival'
           ? `Règlement de comptes ${a(DISTRICTS[ev.target].name)} : ${morts} mort${morts > 1 ? 's' : ''}`
           : `Attaque armée contre le commissariat : ${ev.cops} policier${ev.cops > 1 ? 's' : ''} tué${ev.cops > 1 ? 's' : ''}, le GIGN est sur place`), 2500);
         const bilan = [ev.cops ? `${ev.cops} flic${ev.cops > 1 ? 's' : ''} à terre` : '', ev.rivals ? `${ev.rivals} gars d'en face au tapis` : '', ev.ours ? `on a perdu ${ev.ours} des nôtres` : ''].filter(Boolean).join(', ');
         if (bilan) setTimeout(() => this.sms('Chef d\'équipe', `Bilan : ${bilan}.` + (ev.key === 'killcop' ? ' Le comico est criblé de balles.' : ''), ev.ours && !ev.win ? 'bad' : 'good'), 900);
-        if (ev.win) this.sms('Chef d\'équipe', ev.key === 'rival' ? `C'est fait. ${DISTRICTS[ev.target].name} est à nous.` : ev.key === 'killcop' ? 'Le comico est retourné. Les keufs vont filer droit.' : 'Message passé. Le commissaire a compris.', 'good');
+        if (ev.win) this.sms('Chef d\'équipe', ev.key === 'carnage' ? `${DISTRICTS[ev.target].name} est vide. Plus personne n'ose vendre là-bas à part nous : les prix montent de 30 % pendant 3 minutes.` : ev.key === 'rival' ? `C'est fait. ${DISTRICTS[ev.target].name} est à nous.` : ev.key === 'killcop' ? 'Le comico est retourné. Les keufs vont filer droit.' : 'Message passé. Le commissaire a compris.', 'good');
         else this.sms('Chef d\'équipe', `Ça a mal tourné (${o.name.toLowerCase()}). On a perdu des gars, et ça va chauffer.`, 'bad');
         break;
       }
+      case 'ship':
+        if (ev.boxes) this.sms('Le capitaine', `Cargo à quai : ${ev.boxes} conteneur${ev.boxes > 1 ? 's' : ''} posé${ev.boxes > 1 ? 's' : ''} sur le quai.${this.s.levels.conteneurs ? ' Les poids lourds arrivent.' : ' Construis le parc à conteneurs, sinon ils pourrissent là.'}`, this.s.levels.conteneurs ? 'good' : 'bad');
+        if (ev.lost) this.sms('Le capitaine', `Quai plein : ${ev.lost} conteneur${ev.lost > 1 ? 's' : ''} repartent avec le bateau. Il faut plus de poids lourds.`, 'bad');
+        break;
       case 'arrested': this.gameOver(); break;
     }
   }
@@ -352,7 +359,7 @@ export class Hud {
     for (const lk of LAND_KEYS) {
       const el = this.lLabels[lk], own = s.land[lk], L = LANDS[lk];
       el.style.display = own ? 'none' : '';
-      const html = `<div class="dname">${L.name}</div><div class="dtier">À vendre · ${lk === 'ouest' ? 'contrebande, armes' : lk === 'nord' ? 'casse auto, entrepôt' : lk === 'port' ? 'port, imports par cargo' : 'aérodrome, imports par avion'}</div><div class="lock ${s.cash >= L.price ? 'ok' : ''}">Acheter : ${fmt(L.price)}</div>`;
+      const html = `<div class="dname">${L.name}</div><div class="dtier">À vendre · ${lk === 'ouest' ? 'contrebande, armes' : lk === 'nord' ? 'casse auto, entrepôt' : lk === 'est' ? 'parc à conteneurs' : lk === 'port' ? 'port, imports par cargo' : 'aérodrome, imports par avion'}</div><div class="lock ${s.cash >= L.price ? 'ok' : ''}">Acheter : ${fmt(L.price)}</div>`;
       if (el.innerHTML !== html) el.innerHTML = html;
     }
     DISTRICTS.forEach((d, i) => {
@@ -635,6 +642,13 @@ export class Hud {
           ${d.name}<small>${own ? unitPrice(productPrice(s, p), d.unit) : 'Débloquer · ' + fmt(d.unlock)}</small></button>`;
       }).join('') + `</div></div>`;
     }
+    if ((k === 'conteneurs' || k === 'port') && L > 0) {
+      const K = s.cont, C = stats.conteneurs(s.levels.conteneurs), en = s.semis.filter(m => m.load > 0).length;
+      extra += `<div class="products"><small>Conteneurs</small><div class="wlist">
+        <span class="wchip" style="--c:#38bdf8">Sur le quai <b>${K.quayN}</b></span><span class="wchip" style="--c:#facc15">Sur la route <b>${en}</b></span>
+        <span class="wchip" style="--c:#22c55e">Au parc <b>${K.yardN}${C.capacity ? ' / ' + C.capacity : ''}</b></span></div>
+        <small>${s.levels.conteneurs ? `Valeur en attente : <b>${fmt(K.quayV + K.yardV + s.semis.reduce((a2, m) => a2 + m.load, 0))}</b> · ${C.trucks} poids lourd${C.trucks > 1 ? 's' : ''}` : 'Pas de parc à conteneurs : la came reste bloquée sur le quai. Achète le terrain est et construis-le.'}</small></div>`;
+    }
     if (k === 'entrepot' && L > 0) {
       const E = stats.entrepot(L, s.levels.transport), tot = wareTotal(s), pct = Math.min(100, (tot / E.capacity) * 100);
       const lines = PRODUCT_KEYS.filter(p => s.ware[p] >= 1).map(p => `<span class="wchip" style="--c:${PRODUCTS[p].color}">${PRODUCTS[p].name} <b>${Math.floor(s.ware[p])}</b></span>`).join('') || '<span class="muted">Vide : il se remplit avec le surplus que les pick-up n\'écoulent pas.</span>';
@@ -668,6 +682,9 @@ export class Hud {
       extra += `<div class="ops"><small>Opérations — ${power(s) >= MILICE_REPEL ? 'les Stups n\'osent plus entrer' : `les Stups reculent à partir d'une puissance de ${MILICE_REPEL}`}</small><div>
         ${opBtn('intimidate')}${opBtn('killcop')}
         ${rivals.map(x => opBtn('rival', x.i, `Descente : ${GANGS[x.i]}`)).join('') || '<span class="muted">Aucune bande rivale en ville</span>'}
+      </div></div>
+      <div class="ops"><small>Carnage en ville — ${s.op ? 'équipe déjà dehors' : s.cooldowns.carnage > 0 ? `dispo dans ${Math.ceil(s.cooldowns.carnage)} s` : 'gang, flics, renforts : tout y passe. Grosse pression, quartier terrorisé (+30 % 3 min)'}</small><div class="carn">
+        ${DISTRICTS.map((d, i) => `<button data-op="carnage" data-target="${i}" class="opbtn carnage" ${canLaunch(s, 'carnage', i) && s.convoy.length ? '' : 'disabled'}>${d.name}<small>${Math.round(opChance(s, 'carnage', i) * 100)} %${s.districts[i].fear ? ' · terrorisé' : ''}</small></button>`).join('')}
       </div></div>`;
     }
     const html = `
@@ -697,6 +714,8 @@ function statRows(k: StationKey, a: number, b: number, s: GameState): [string, s
     return [['Soldats', x.soldiers, y.soldiers], ['Véhicules armés', miliceVehicles(a), miliceVehicles(b)], ['Puissance', x.power.toFixed(1), y.power.toFixed(1)], ['Solde', fmt(x.upkeep * 60) + '/min', fmt(y.upkeep * 60) + '/min']]; }
   if (k === 'villa') { const x = stats.villa(a), y = stats.villa(b), T = ['Maison', 'Villa', 'Manoir', 'Château'], ti = (L: number) => (L >= 40 ? 3 : L >= 20 ? 2 : L >= 8 ? 1 : 0);
     return [['Demeure', T[ti(a)], T[ti(b)]], ['Gardes du corps', x.guards, y.guards], ['Cash planqué', Math.round(x.hide * 100) + '%', Math.round(y.hide * 100) + '%'], ['Remise contrats', Math.round(x.hitDiscount * 100) + '%', Math.round(y.hitDiscount * 100) + '%']]; }
+  if (k === 'conteneurs') { const x = stats.conteneurs(a), y = stats.conteneurs(b);
+    return [['Poids lourds', x.trucks, y.trucks], ['Place', x.capacity + ' cont.', y.capacity + ' cont.'], ['Dépotage', x.open ? x.open.toFixed(1) + ' s' : '—', y.open.toFixed(1) + ' s'], ['Bonus', '×' + x.payMult.toFixed(2), '×' + y.payMult.toFixed(2)]]; }
   if (k === 'transport') { const x = stats.transport(a), y = stats.transport(b);
     return [['Transpalettes / labo', x.forks, y.forks], ['Charge', '×' + x.capMult.toFixed(2), '×' + y.capMult.toFixed(2)], ['Vitesse', '×' + x.speedMult.toFixed(2), '×' + y.speedMult.toFixed(2)]]; }
   if (k === 'entrepot') { const x = stats.entrepot(a, s.levels.transport), y = stats.entrepot(b, s.levels.transport);
