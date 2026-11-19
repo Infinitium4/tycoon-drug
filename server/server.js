@@ -1,5 +1,5 @@
 // Serveur multijoueur Tycoon Drug.
-// - Une seule ville, partie infinie, 12 joueurs par défaut (MAX_PLAYERS, jusqu'à 20).
+// - Une seule ville, partie infinie, 20 joueurs par défaut (MAX_PLAYERS, 2 à 20).
 // - Pas de sauvegarde : si tu quittes (ou si tu tombes), ta base disparaît.
 // - Sert aussi le jeu : tes potes ouvrent http://<ton-ip>:2567 et jouent directement.
 //
@@ -13,9 +13,9 @@ const { createStore, hashPassword, checkPassword } = require('./store');
 let store = null;   // comptes + sauvegardes (PostgreSQL ou fichier)
 
 const PORT = Number(process.env.PORT || 2567);
-const MAX = Math.min(20, Math.max(2, Number(process.env.MAX_PLAYERS || 12)));   // joueurs simultanés (2 à 20)
+const MAX = Math.min(20, Math.max(2, Number(process.env.MAX_PLAYERS || 20)));   // joueurs simultanés (2 à 20)
 const N_DISTRICTS = 16;
-const MAX_PER_IP = Number(process.env.MAX_PER_IP || 3);            // connexions simultanées par adresse IP
+const MAX_PER_IP = Number(process.env.MAX_PER_IP || 8);            // connexions simultanées par adresse IP
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';               // derrière Nginx/Traefik : lire X-Forwarded-For
 const ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean); // vide = toutes
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';           // vide = panneau admin désactivé en ligne
