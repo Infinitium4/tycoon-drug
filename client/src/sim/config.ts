@@ -164,10 +164,11 @@ export const stats = {
 };
 
 // ---------------- Milice : opérations ----------------
-export type OpKey = 'intimidate' | 'killcop' | 'rival' | 'carnage';
+export type OpKey = 'intimidate' | 'killcop' | 'rival' | 'carnage' | 'raid';
 export const OPS: Record<OpKey, { name: string; desc: string; cooldown: number; difficulty: number; heatWin: number; heatFail: number; lossFail: number; grip?: number }> = {
   intimidate: { name: 'Menacer le commissariat', desc: 'Le convoi passe devant le comico, message reçu',      cooldown: 45,  difficulty: 3,  heatWin: -20, heatFail: 10, lossFail: 1, grip: 25 },
   killcop:    { name: 'Attaquer le commissariat', desc: 'Plus personne n\'ose enquêter… si ça marche',  cooldown: 120, difficulty: 7,  heatWin: -45, heatFail: 30, lossFail: 2, grip: 45 },
+  raid:       { name: 'Raid armé', desc: 'Le convoi fonce sur la base d\'un autre joueur : fusillade, et on repart avec une partie de sa caisse', cooldown: 120, difficulty: 0, heatWin: 12, heatFail: 6, lossFail: 1 },
   carnage:    { name: 'Carnage en ville', desc: 'Tout le convoi débarque et tire dans le tas : gang du coin, flics, renforts. La rue se vide, le quartier est à toi', cooldown: 180, difficulty: 8, heatWin: 30, heatFail: 45, lossFail: 2, grip: 15 },
   rival:      { name: 'Descente chez',       desc: 'Reprendre un point de deal à une bande rivale',        cooldown: 30,  difficulty: 0,  heatWin: 8,   heatFail: 5,  lossFail: 1 },
 };

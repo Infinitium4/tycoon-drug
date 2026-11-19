@@ -1,6 +1,5 @@
-import { DISTRICTS } from "./sim/config";
 import './style.css';
-import { createGame, step, syncUnits, applyExt, sufferAttack } from './sim/sim';
+import { createGame, step, syncUnits, applyExt, sufferAttack, setRaidResult } from './sim/sim';
 import { Net, defaultServer, servedByServer } from './net';
 import { Control } from './control';
 import { exportSave, importSave, soloSave, soloLoad, soloClear } from './sim/save';
@@ -107,7 +106,20 @@ if (net.online) {
   if (net.players.length) hud.sms('Serveur', `Tu es en ville avec ${net.players.length} autre${net.players.length > 1 ? 's' : ''} cartel${net.players.length > 1 ? 's' : ''}.`, 'good');
   net.onWorld = ext => { applyExt(state, ext); world.setOthers(net); };
   net.onNews = text => hud.ticker(text);
-  net.onAttacked = m => { const loss = sufferAttack(state, m.win); net.loot(m.by, loss); world.baseAttacked(m.win); hud.onAttacked(m.cartel, m.boss, m.win, loss); };
+  net.onAttacked = m => { const raid = m.kind === 'raid', loss = sufferAttack(state, m.win, raid); net.loot(m.by, loss); world.baseAttacked(m.win, raid); hud.onAttacked(m.cartel, m.boss, m.win, loss, raid); };
+  net.onRaidResult = m => setRaidResult(state, m.win);
+  net.onCityOp = m => {
+    // une opération armée d'un autre joueur en ville : ça nous retombe dessus
+    if (m.kind === 'carnage') {
+      const d = state.districts[m.district]; if (!d) return;
+      if (m.win) { d.hostile = 150; d.sat = Math.min(1, d.sat + 0.4); if (d.unlocked && d.active) state.heat = Math.min(99, state.heat + 4); }
+      world.remoteCarnage(m.district);
+      hud.cityOp(m.cartel, m.kind, m.district, m.win, d.unlocked && d.active);
+    } else if (m.kind === 'killcop') {
+      if (m.win) state.heat = Math.min(99, state.heat + 6);
+      hud.cityOp(m.cartel, m.kind, -1, m.win, true);
+    } else if (m.kind === 'rival' && m.win) hud.cityOp(m.cartel, m.kind, m.district, m.win, false);
+  };
   net.onLoot = m => { if (m.amount > 0) { state.cash += m.amount; state.totalEarned += m.amount; hud.sms('Le Tueur', `Butin récupéré chez ${m.cartel} : ${Math.round(m.amount).toLocaleString('fr-FR')} €.`, 'good'); } };
   net.onHitResult = m => { const pl = net.player(m.target); hud.sms('Le Tueur', m.win ? `On a retourné la base de ${pl?.cartel ?? 'l\'autre'}. Le butin arrive.` : `Leurs gars nous attendaient. On s'est replié.`, m.win ? 'good' : 'bad'); };
   net.onAllyReq = m => hud.allyRequest(m.from, m.cartel, m.boss);
@@ -170,7 +182,8 @@ let last = performance.now(), uiT = 0;
 function loop(now: number) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   for (const ev of step(state, dt)) { hud.onEvent(ev);
-    if (ev.type === 'opResult' && ev.key === 'carnage' && ev.win && net.online) net.news(`Carnage : le cartel ${state.cartel} a vidé le quartier ${DISTRICTS[ev.target].name}. ${ev.cops + ev.rivals} morts.`); if (ev.type === 'arrested') { soloClear(); if (net.online) { net.dead(); net.news(`Le boss du cartel ${state.cartel} est tombé. Sa base est rasée.`); net.bye(); } } }
+    if (ev.type === 'opResult' && (ev.key === 'carnage' || ev.key === 'killcop' || ev.key === 'rival') && net.online) net.cityOp(ev.key, ev.target, ev.win);
+    if (ev.type === 'raidArrived') { if (net.online && net.player(ev.target)) net.raid(ev.target); else setRaidResult(state, false); } if (ev.type === 'arrested') { soloClear(); if (net.online) { net.dead(); net.news(`Le boss du cartel ${state.cartel} est tombé. Sa base est rasée.`); net.bye(); } } }
   stepKeys(dt);
   world.sync(state, now / 1000);
   world.animate(dt, now / 1000, state.time);

@@ -627,6 +627,26 @@ export class World {
     }
   }
   private boats: THREE.Group[] = [];
+  private remote: { objs: THREE.Object3D[]; fire: THREE.Vector3; t: number }[] = [];
+  /** Carnage d'un autre joueur : épave en feu, voitures de police, rubalise, pendant 90 s. */
+  remoteCarnage(i: number) {
+    const d = DISTRICTS[i]; if (!d) return;
+    const c = blockCenter(d.r, d.c), x = roadX(d.c) + 0.9, objs: THREE.Object3D[] = [];
+    const w = M.wreck(); w.position.set(x, 0.06, c.z + 2); w.rotation.y = 0.5; this.scene.add(w); objs.push(w);
+    for (const dz of [-7, 9]) { const p = this.withLights(M.optimize(M.bacCar()), 1.4); p.position.set(x - 1.8, 0.05, c.z + dz); this.scene.add(p); objs.push(p); }
+    const tape = M.tape(x - 4, c.z - 5, x + 4, c.z + 7); this.scene.add(tape); objs.push(tape);
+    this.explode(x, 0.8, c.z + 2);
+    this.remote.push({ objs, fire: new THREE.Vector3(x, 1, c.z + 2), t: 90 });
+  }
+  private stepRemote(dt: number) {
+    for (const r of this.remote) {
+      r.t -= dt;
+      if (r.t > 30 && Math.random() < 0.5) this.fx.emit('fire', r.fire.x + (Math.random() - 0.5), 0.9, r.fire.z + (Math.random() - 0.5), 1);
+      if (Math.random() < 0.15) this.fx.emit(r.t > 30 ? 'blacksmoke' : 'steam', r.fire.x, 1.6, r.fire.z);
+      if (r.t <= 0) r.objs.forEach(o => this.scene.remove(o));
+    }
+    this.remote = this.remote.filter(r => r.t > 0);
+  }
   /** Les poids lourds suivent le trajet parc -> port -> parc ; le conteneur n'est visible que chargé. */
   private syncSemis(s: GameState, time: number) {
     const along = (pts: THREE.Vector2[], f: number) => {
@@ -1038,7 +1058,7 @@ export class World {
     if (phase === 'fight' && this.lastPhase !== 'fight' && op) {
       this.clearFight(); this.comFireOut = false;
       const res = op.result!;
-      const spot = atCom ? { x: COMMISSARIAT.x, z: COMMISSARIAT.z } : (() => { const d = DISTRICTS[op.target], c = blockCenter(d.r, d.c); return { x: roadX(d.c) + 3.4, z: c.z }; })();
+      const spot = atCom ? { x: COMMISSARIAT.x, z: COMMISSARIAT.z } : op.key === 'raid' && op.pos ? { x: op.pos.x, z: op.pos.z + 5 } : (() => { const d = DISTRICTS[op.target], c = blockCenter(d.r, d.c); return { x: roadX(d.c) + 3.4, z: c.z }; })();
       this.spot = { ...spot, com: atCom };
       const rz = LAYOUT.roadZ + 0.9;
       if (atCom) {
@@ -1411,13 +1431,13 @@ export class World {
     }
   }
   /** Notre base se fait attaquer par un autre joueur : rafales depuis la route, explosion au portail, deux gars à terre. */
-  baseAttacked(win: boolean) {
+  baseAttacked(win: boolean, raid = false) {
     const from = new THREE.Vector3(12, 1.2, LAYOUT.roadZ + 1.5);
     let n = 0;
     const burst = () => {
       for (let i = 0; i < 4; i++) this.tracer(from.clone().add(new THREE.Vector3((Math.random() - 0.5) * 4, 0, 0)), new THREE.Vector3(4 + Math.random() * 12, 0.6 + Math.random() * 2, -2 + Math.random() * 8));
-      if (++n < 14) setTimeout(burst, 120);
-      else if (win) { this.explode(9.6, 1, 5); this.bleed(7.5, 4.2); this.bleed(11, 3.4); }
+      if (++n < (raid ? 40 : 14)) setTimeout(burst, 120);
+      else if (win) { this.explode(9.6, 1, 5); this.bleed(7.5, 4.2); this.bleed(11, 3.4); if (raid) { this.explode(2, 1, 4); this.explode(-6, 1, 3.5); this.bleed(0, 2); this.bleed(-4, 3); } }
     };
     burst(); this.goTo(9, 3, 1);
   }
@@ -1447,6 +1467,7 @@ export class World {
     this.syncPlane(s, time);
     this.syncPort(s, time);
     this.syncSemis(s, time);
+    this.stepRemote(1 / 60);
     this.syncLoops(s, time);
     for (const k of ['transport', 'entrepot', 'conteneurs'] as const) this.plots[k]!.visible = s.levels[k] === 0 && s.land[STATION_LAND[k]!];
     // transpalettes de l'entrepôt : va-et-vient entre les racks et les quais, caisse à l'aller

@@ -30,16 +30,17 @@ export interface Van extends Vec {
   wp: number; wait: number; dest: number; slot: number; facing: number;
 }
 export interface Forklift extends Vec { id: number; lab: LabKey; idx: number; state: 'wait' | 'out' | 'back'; load: number; wp: number; facing: number }
-export interface DistrictState { unlocked: boolean; active: boolean; sat: number; rival: number; fear?: number }
+export interface DistrictState { unlocked: boolean; active: boolean; sat: number; rival: number; fear?: number; hostile?: number }
 /** Poids lourd : t = 0 au parc, 0.5 au port ; load = valeur du conteneur chargé (0 = à vide). */
 export interface Semi { t: number; load: number; color: number }
 export interface Police { phase: 'coming' | 'waiting' | 'leaving'; x: number; z: number; t: number; facing: number; gign?: boolean }
 export interface ConvoyCar extends Vec { id: number; slot: number; facing: number; path: Vec[]; back: Vec[]; firing: boolean }
 export interface Patrol extends Vec { id: number; from: [number, number]; to: [number, number]; t: number; facing: number }
 export interface OpResult { win: boolean; cops: number; rivals: number; ours: number }
-export interface Op { key: OpKey; target: number; phase: 'go' | 'fight' | 'back'; t: number; result?: OpResult }
+export interface Op { key: OpKey; target: number; phase: 'go' | 'fight' | 'back'; t: number; result?: OpResult; pos?: Vec; asked?: boolean; tpower?: number }
 
 export type SimEvent =
+  | { type: 'raidArrived'; target: number }
   | { type: 'ship'; boxes: number; lost: number }
   | { type: 'sale'; amount: number; x: number; z: number; district: number }
   | { type: 'robbed'; district: number }
@@ -127,7 +128,7 @@ export function createGame(): GameState {
     time: 0,
     districts: DISTRICTS.map(d => ({ unlocked: d.unlock === 0, active: d.unlock === 0, sat: 0, rival: d.rival })),
     heat: 0, police: null, patrols: [], convoy: [], grip: 0, cartel: 'Sans Nom', kills: { cops: 0, rivals: 0, ours: 0 }, comDamage: 0, op: null,
-    cooldowns: { intimidate: 0, killcop: 0, rival: 0, carnage: 0 },
+    cooldowns: { intimidate: 0, killcop: 0, rival: 0, carnage: 0, raid: 0 },
     unpaid: 0, rivalTimer: 0, over: false, totalEarned: 0,
     land: { ouest: false, nord: false, est: false, aero: false, port: false }, bizT: { clopes: 0, armes: 1, casse: 2, aero: 0, port: 0 },
     boss: 'Le Boss', lux: Object.fromEntries(LUX_KEYS.map(k => [k, false])) as Record<LuxKey, boolean>,
@@ -294,7 +295,7 @@ export function productPrice(s: GameState, p: ProductKey) {
 }
 export function districtFactor(s: GameState, i: number) {
   const st = s.districts[i];
-  return DISTRICTS[i].mult * (1 - 0.7 * st.sat) * (st.rival > 0 ? RIVAL.pricePenalty : 1) * (st.fear ? 1.3 : 1);
+  return DISTRICTS[i].mult * (1 - 0.7 * st.sat) * (st.rival > 0 ? RIVAL.pricePenalty : 1) * (st.fear ? 1.3 : 1) * (st.hostile ? 0.6 : 1);
 }
 export const totalStock = (s: GameState) => PRODUCT_KEYS.reduce((a, p) => a + s.stock[p], 0);
 const byValue = (s: GameState) => PRODUCT_KEYS.slice().sort((a, b) => productPrice(s, b) - productPrice(s, a));
@@ -474,7 +475,7 @@ export function step(s: GameState, dt: number): SimEvent[] {
   stepBiz(s, dt, events);
   stepWarehouse(s, dt);
   stepContainers(s, dt, events);
-  for (const d of s.districts) if (d.fear) d.fear = Math.max(0, d.fear - dt);
+  for (const d of s.districts) { if (d.fear) d.fear = Math.max(0, d.fear - dt); if (d.hostile) d.hostile = Math.max(0, d.hostile - dt); }
   stepHit(s, dt, events);
   stepPatrols(s, dt);
 
@@ -558,6 +559,26 @@ export function canLaunch(s: GameState, key: OpKey, target = -1) {
   if (key === 'carnage' && (target < 0 || !s.districts[target])) return false;
   return true;
 }
+/** Chances d'un raid sur un autre joueur (estimation : c'est le serveur qui tire). */
+export function raidChance(s: GameState, targetPower: number) { return Math.max(0.15, Math.min(0.85, 0.55 + (power(s) - targetPower) * 0.035)); }
+/** Raid du convoi sur la base d'un autre joueur : l'issue est décidée par le serveur à l'arrivée. */
+export function launchRaid(s: GameState, targetId: number, pos: Vec, targetPower: number): boolean {
+  if (!canLaunch(s, 'raid') || s.convoy.length === 0) return false;
+  s.op = { key: 'raid', target: targetId, phase: 'go', t: 0, pos, tpower: targetPower };
+  const rz = LAYOUT.roadZ - 0.9;
+  for (const c of s.convoy) {
+    const p = MILICE_PARK[c.slot];
+    c.path = [{ x: 9, z: 5.75 }, { x: 10.1, z: 5.75 }, { x: 10.1, z: rz }, { x: pos.x - 4 + c.slot * 4, z: rz }, { x: pos.x - 4 + c.slot * 4, z: pos.z + 13 }];
+    c.back = [...c.path].reverse().slice(1).concat([{ x: p.x, z: p.z }]);
+  }
+  return true;
+}
+/** Réponse du serveur : on connaît l'issue, la fusillade peut commencer. */
+export function setRaidResult(s: GameState, win: boolean) {
+  const op = s.op; if (!op || op.key !== 'raid' || op.result) return;
+  const r = (a: number, b: number) => a + Math.floor(Math.random() * (b - a + 1));
+  op.result = { win, cops: 0, rivals: win ? r(3, 5) : r(1, 2), ours: win ? r(0, 1) : r(1, 3) };
+}
 /** Point d'arrivée du convoi : devant le commissariat, ou dans le quartier visé. */
 function opTarget(key: OpKey, target: number, slot: number): Vec[] {
   if (key === 'rival' || key === 'carnage') {
@@ -590,7 +611,13 @@ function stepConvoy(s: GameState, dt: number, events: SimEvent[]) {
     if (moveTo(c, w.x, w.z, 13, dt)) list.shift();
     if (list.length) arrived = false;
   }
-  if (op.phase === 'go' && (arrived || op.t > 25)) { op.phase = 'fight'; op.t = 0; op.result = rollOp(s, op); }
+  if (op.phase === 'go' && op.key === 'raid') {
+    // arrivés devant chez lui : on attend le verdict du serveur (20 s max, sinon on rentre bredouille)
+    if ((arrived || op.t > 40) && !op.asked) { op.asked = true; op.t = 0; events.push({ type: 'raidArrived', target: op.target }); }
+    if (op.asked && !op.result && op.t > 20) setRaidResult(s, false);
+    if (op.result) { op.phase = 'fight'; op.t = 0; }
+  }
+  else if (op.phase === 'go' && (arrived || op.t > 25)) { op.phase = 'fight'; op.t = 0; op.result = rollOp(s, op); }
   else if (op.phase === 'fight' && op.t > FIGHT_TIME) { resolveOp(s, events); op.phase = 'back'; op.t = 0; }
   else if (op.phase === 'back' && (arrived || op.t > 25)) {
     s.op = null;
@@ -614,7 +641,7 @@ function resolveOp(s: GameState, events: SimEvent[]) {
   const op = s.op!, def = OPS[op.key];
   const res = op.result ?? rollOp(s, op), win = res.win;
   s.kills.cops += res.cops; s.kills.rivals += res.rivals; s.kills.ours += res.ours;
-  if (op.key !== 'rival' && op.key !== 'carnage') s.comDamage = Math.min(1, s.comDamage + (op.key === 'killcop' ? 0.45 : 0.2));
+  if (op.key === 'intimidate' || op.key === 'killcop') s.comDamage = Math.min(1, s.comDamage + (op.key === 'killcop' ? 0.45 : 0.2));
   s.cooldowns[op.key] = def.cooldown;
   if (win) {
     s.heat = Math.max(0, s.heat + def.heatWin);
@@ -766,9 +793,10 @@ export function orderPvp(s: GameState, targetId: number, pos: Vec, targetCash: n
   return true;
 }
 /** On se fait attaquer par un autre joueur : on perd du cash (moins si planqué) et deux gardes. Renvoie la somme volée. */
-export function sufferAttack(s: GameState, win: boolean): number {
-  if (!win) { s.kills.rivals += 1; return 0; }
-  const loss = Math.floor(s.cash * 0.15 * (1 - hidden(s) * 0.6));
+export function sufferAttack(s: GameState, win: boolean, raid = false): number {
+  if (!win) { s.kills.rivals += raid ? 3 : 1; return 0; }
+  if (raid && s.levels.milice > 1) s.levels.milice -= 1;
+  const loss = Math.floor(s.cash * (raid ? 0.2 : 0.15) * (1 - hidden(s) * 0.6));
   s.cash -= loss; s.kills.ours += 2; s.heat = Math.min(99, s.heat + 5);
   return loss;
 }

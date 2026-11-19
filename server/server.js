@@ -76,7 +76,7 @@ const setAlly = (a, b, on) => {
     on ? alliances.get(x).add(y) : alliances.get(x).delete(y);
   }
 };
-const GIFT_COOLDOWN = 10_000;
+const GIFT_COOLDOWN = 10_000, RAID_COOLDOWN = 110_000;
 /** id -> { ws, id, ip, slot, profile, sales, pending, bucket, lastHit, attack } */
 const players = new Map();
 let nextId = 1;
@@ -164,6 +164,35 @@ wss.on('connection', (ws, req) => {
           send(p, { t: 'hitResult', target: target.id, win });
           news(win ? `Fusillade : le cartel ${p.profile.cartel} attaque la base de ${target.profile.cartel}` : `Raid raté contre ${target.profile.cartel} : les assaillants ont pris la fuite`);
         }, Math.max(0, HIT_MIN_TRAVEL - 3000));
+        break;
+      }
+      case 'raid': {
+        // raid du convoi d'un joueur sur la base d'un autre : issue tirée ici, butin plafonné à 25 %
+        const target = players.get(Number(m.target)), now = Date.now();
+        if (!p.profile || !target?.profile || target === p || allied(p, target)) return;
+        if (now - (p.lastRaid || 0) < RAID_COOLDOWN) return;
+        p.lastRaid = now;
+        const chance = Math.min(0.85, Math.max(0.15, 0.55 + (p.profile.power - target.profile.power) * 0.035));
+        const win = Math.random() < chance;
+        target.attack = win ? { by: p.id, cap: Math.floor(target.profile.cash * 0.25), at: now } : null;
+        send(target, { t: 'attacked', by: p.id, cartel: p.profile.cartel, boss: p.profile.boss, win, kind: 'raid' });
+        send(p, { t: 'raidResult', target: target.id, win });
+        news(win ? `Raid armé : le convoi de ${p.profile.cartel} a pris d'assaut la base de ${target.profile.cartel}` : `La milice de ${target.profile.cartel} repousse le raid de ${p.profile.cartel}`);
+        break;
+      }
+      case 'cityOp': {
+        // une opération armée en ville touche tout le monde : ventes des autres cassées dans le quartier, police sur les dents
+        const now = Date.now(), kind = String(m.kind), d = Number(m.district), win = m.win === true;
+        if (!p.profile || !['carnage', 'killcop', 'rival'].includes(kind) || now - (p.lastCityOp || 0) < 25_000) return;
+        if (kind !== 'killcop' && !(Number.isInteger(d) && d >= 0 && d < N_DISTRICTS)) return;
+        p.lastCityOp = now;
+        if (kind === 'carnage' && win) {
+          for (const o of players.values()) if (o !== p) o.sales[d] *= allied(p, o) ? 0.8 : 0.4;
+          p.sales[d] += 1.5;
+        }
+        broadcast({ t: 'cityOp', by: p.id, cartel: p.profile.cartel, kind, district: kind === 'killcop' ? -1 : d, win }, p);
+        if (kind === 'carnage') news(win ? `Carnage en ville : le cartel ${p.profile.cartel} a vidé un quartier, les autres réseaux se terrent` : `Fusillade géante : le cartel ${p.profile.cartel} se fait repousser par la police`);
+        if (kind === 'killcop' && win) news(`Le commissariat attaqué par ${p.profile.cartel} : renforts de police dans toute la ville`);
         break;
       }
       case 'loot': {

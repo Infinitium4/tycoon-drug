@@ -40,13 +40,15 @@ export class Net {
   /** Poids de ventes de chaque joueur par quartier (contrôle). */
   ctrl: Record<number, number[]> = {};
   onWorld: (ext: number[]) => void = () => {};
-  onAttacked: (m: { by: number; cartel: string; boss: string; win: boolean }) => void = () => {};
+  onAttacked: (m: { by: number; cartel: string; boss: string; win: boolean; kind?: string }) => void = () => {};
   onLoot: (m: { amount: number; cartel: string }) => void = () => {};
   onHitResult: (m: { target: number; win: boolean }) => void = () => {};
   onNews: (text: string) => void = () => {};
   onLost: () => void = () => {};
   onKicked: () => void = () => {};
   onBanned: (msg: string) => void = () => {};
+  onRaidResult: (m: { target: number; win: boolean }) => void = () => {};
+  onCityOp: (m: { by: number; cartel: string; kind: 'carnage' | 'killcop' | 'rival'; district: number; win: boolean }) => void = () => {};
   onSaveNow: () => void = () => {};
   welcome: Welcome | null = null;
   error = '';
@@ -83,6 +85,8 @@ export class Net {
           case 'news': this.onNews(m.text); break;
           case 'allyReq': this.onAllyReq(m); break;
           case 'gift': this.onGift(m); break;
+          case 'raidResult': this.onRaidResult(m); break;
+          case 'cityOp': this.onCityOp(m); break;
           case 'gave': this.onGave(m); break;
         }
       };
@@ -103,6 +107,8 @@ export class Net {
   ally(target: number) { this.send({ t: 'ally', target }); }
   allyAnswer(from: number, yes: boolean) { this.send({ t: 'allyAnswer', from, yes }); }
   unally(target: number) { this.send({ t: 'unally', target }); }
+  raid(target: number) { this.send({ t: 'raid', target }); }
+  cityOp(kind: string, district: number, win: boolean) { this.send({ t: 'cityOp', kind, district, win }); }
   give(target: number, amount: number) { this.send({ t: 'give', target, amount }); }
   loot(to: number, amount: number) { this.send({ t: 'loot', to, amount }); }
   news(text: string) { this.send({ t: 'news', text }); }

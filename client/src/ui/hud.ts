@@ -8,7 +8,7 @@ import {
 } from '../sim/config';
 import {
   GameState, SimEvent, employees, bribe, bribeCost, canLaunch, districtAction, districtFactor, launchOp, maxAffordable, opChance,
-  productPrice, selectProduct, totalCost, upgrade, power, needsLand, buyLand, buyLux, villaTier, hitPrice, canHit, orderHit, prestige, buyCountry, selectRoute, pvpPrice, pvpChance, orderPvp, syncUnits, wareTotal, wareValue,
+  productPrice, selectProduct, totalCost, upgrade, power, needsLand, buyLand, buyLux, villaTier, hitPrice, canHit, orderHit, prestige, buyCountry, selectRoute, pvpPrice, pvpChance, orderPvp, syncUnits, wareTotal, wareValue, launchRaid, raidChance,
 } from '../sim/sim';
 import { World } from '../render/scene';
 import { gameHour, nightFactor, DAY_LENGTH } from '../render/fx';
@@ -184,6 +184,11 @@ export class Hud {
       const k2 = lx.dataset.lux as LuxKey;
       if (buyLux(s, k2)) { this.sms('Toi', `${LUX[k2].name} : c'est à moi. ${LUX[k2].desc}.`, 'good'); this.world.luxBought(k2); this.ticker(`Train de vie : ${s.boss} s'offre ${LUX[k2].name.toLowerCase()}`); }
     }
+    const rd = t.closest('[data-raid]') as HTMLElement | null;
+    if (rd && !(rd as HTMLButtonElement).disabled && this.net) {
+      const p = this.net.player(Number(rd.dataset.raid)), pos = p ? OTHER_SLOTS[this.net.relSlot(p)] : null;
+      if (p && pos && launchRaid(s, p.id, { x: pos.x, z: pos.z }, p.power)) { this.sms('Chef d\'équipe', `Tout le monde en voiture. On va chez ${p.cartel}, on rentre avec la caisse.`, 'good'); this.world.follow = true; }
+    }
     const op = t.closest('[data-op]') as HTMLElement | null;
     if (op && !(op as HTMLButtonElement).disabled) {
       const key = op.dataset.op as OpKey, target = Number(op.dataset.target ?? -1);
@@ -241,6 +246,11 @@ export class Hud {
       case 'opResult': {
         const o = OPS[ev.key];
         const morts = ev.cops + ev.rivals + ev.ours;
+        if (ev.key === 'raid') {
+          const pl = this.net?.player(ev.target);
+          this.sms('Chef d\'équipe', ev.win ? `Base de ${pl?.cartel ?? 'l\'autre'} retournée. On ramasse la caisse.` : `Ils nous attendaient chez ${pl?.cartel ?? 'eux'}. On a perdu des gars, on rentre.`, ev.win ? 'good' : 'bad');
+          break;
+        }
         setTimeout(() => this.ticker(ev.key === 'carnage'
           ? `Carnage ${a(DISTRICTS[ev.target].name)} : ${morts} morts dont ${ev.cops} policiers, la population terrée chez elle`
           : ev.key === 'rival'
@@ -519,6 +529,16 @@ export class Hud {
     }
     for (const [id, lb] of this.oLabels) if (!seen.has(id)) { lb.remove(); this.oLabels.delete(id); }
   }
+  /** Opération armée d'un autre joueur en ville. */
+  cityOp(cartel: string, kind: string, district: number, win: boolean, mine: boolean) {
+    const D = DISTRICTS[district]?.name ?? '';
+    if (kind === 'carnage') {
+      this.ticker(win ? `Carnage ${a(D)} : le cartel ${cartel} a tiré dans le tas, la rue est vide` : `Fusillade ${a(D)} : le cartel ${cartel} repoussé par la police`);
+      if (win) this.sms(crew(), mine ? `Le cartel ${cartel} a fait un carnage ${a(D)}. Nos clients se cachent, nos prix là-bas sont divisés pendant 2 min 30, et les flics sont partout.` : `Le cartel ${cartel} a fait un carnage ${a(D)}. Évite le coin quelques minutes.`, 'bad');
+    } else if (kind === 'killcop') {
+      if (win) this.sms('Avocat', `Le cartel ${cartel} a attaqué le comico. Renforts de police dans toute la ville : ça chauffe pour tout le monde.`, 'bad');
+    } else if (kind === 'rival') this.ticker(`Règlement de comptes ${a(D)} : le cartel ${cartel} chasse une bande rivale`);
+  }
   /** Un autre cartel propose une alliance. */
   allyRequest(from: number, cartel: string, boss: string) {
     const el = this.q('#allyreq');
@@ -530,7 +550,12 @@ export class Hud {
   }
   private giftVals = new Map<number, string>();
   /** Un autre joueur nous attaque. */
-  onAttacked(cartel: string, boss: string, win: boolean, loss: number) {
+  onAttacked(cartel: string, boss: string, win: boolean, loss: number, raid = false) {
+    if (raid) {
+      if (win) { this.sms('Chef d\'équipe', `RAID ! Le convoi du cartel ${cartel} a défoncé la base. On a perdu des gars, un niveau de milice et ${fmt(loss)}.`, 'bad'); }
+      else this.sms('Chef d\'équipe', `Le cartel ${cartel} a tenté un raid sur la base. La milice les a repoussés, trois des leurs au tapis.`, 'good');
+      return;
+    }
     if (win) { this.sms('Guetteur', `On se fait allumer ! C'est le cartel ${cartel} (${boss}). Ils sont repartis avec ${fmt(loss)}.`, 'bad'); this.ticker(`Fusillade à la base de ${this.s.cartel} : le cartel ${cartel} revendique l'attaque`); }
     else this.sms('Chef d\'équipe', `Le cartel ${cartel} a tenté un raid. Les gars les ont repoussés.`, 'good');
   }
@@ -682,6 +707,9 @@ export class Hud {
       extra += `<div class="ops"><small>Opérations — ${power(s) >= MILICE_REPEL ? 'les Stups n\'osent plus entrer' : `les Stups reculent à partir d'une puissance de ${MILICE_REPEL}`}</small><div>
         ${opBtn('intimidate')}${opBtn('killcop')}
         ${rivals.map(x => opBtn('rival', x.i, `Descente : ${GANGS[x.i]}`)).join('') || '<span class="muted">Aucune bande rivale en ville</span>'}
+      </div></div>
+      <div class="ops"><small>Raid sur un autre joueur — ${s.cooldowns.raid > 0 ? `dispo dans ${Math.ceil(s.cooldowns.raid)} s` : 'le convoi attaque sa base, jusqu\'à 25 % de sa caisse'}</small><div>
+        ${(this.net?.online ? this.net.players.filter(p => !this.net!.allies.has(p.id)) : []).map(p => `<button data-raid="${p.id}" class="opbtn rival" ${canLaunch(s, 'raid') && s.convoy.length ? '' : 'disabled'}>Raid : ${esc(p.cartel)}<small>${Math.round(raidChance(s, p.power) * 100)} % · sa milice ${p.power.toFixed(0)} · caisse ${fmt(p.cash)}</small></button>`).join('') || `<span class="muted">${this.net?.online ? 'Personne à attaquer (les alliés sont protégés).' : 'Joue en ligne pour attaquer les autres joueurs.'}</span>`}
       </div></div>
       <div class="ops"><small>Carnage en ville — ${s.op ? 'équipe déjà dehors' : s.cooldowns.carnage > 0 ? `dispo dans ${Math.ceil(s.cooldowns.carnage)} s` : 'gang, flics, renforts : tout y passe. Grosse pression, quartier terrorisé (+30 % 3 min)'}</small><div class="carn">
         ${DISTRICTS.map((d, i) => `<button data-op="carnage" data-target="${i}" class="opbtn carnage" ${canLaunch(s, 'carnage', i) && s.convoy.length ? '' : 'disabled'}>${d.name}<small>${Math.round(opChance(s, 'carnage', i) * 100)} %${s.districts[i].fear ? ' · terrorisé' : ''}</small></button>`).join('')}
