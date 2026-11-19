@@ -276,3 +276,21 @@ button.go small { font-size: 13px; opacity: .9; }
 .hud.far .dlabel .ctl { display: block; width: 70px; }
 
 .minimap, .camctl { z-index: 6; }
+/* très loin : juste les noms, petits */
+.hud.vfar .dlabel { padding: 2px 6px; border-width: 1px; opacity: .9; }
+.hud.vfar .dlabel > :not(.dname):not(.ctl) { display: none !important; }
+.hud.vfar .dlabel .ctl .cme, .hud.vfar .dlabel .ctl .clead { display: none; }
+.hud.vfar .dlabel .ctl { width: 54px; margin-top: 2px; } .hud.vfar .dlabel .cbar { height: 4px; }
+.hud.vfar .dlabel .dname { font-size: 10px; }
+.hud.vfar .dlabel.land, .hud.vfar .dlabel.country, .hud.vfar .slabel, .hud.vfar .comlabel { display: none !important; }
+.wbar { height: 8px; border-radius: 4px; background: #1e293b; overflow: hidden; margin: 4px 0 6px; } .wbar i { display: block; height: 100%; background: linear-gradient(90deg, #22c55e, #facc15); }
+.wlist { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.wchip { background: #0f172a; border: 1px solid var(--c); border-radius: 8px; padding: 3px 8px; font-size: 12px; color: #e2e8f0; } .wchip b { color: var(--c); }
+.pact { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 210px; }
+.pact .give { display: flex; gap: 4px; } .pact input { width: 96px; background: #0f172a; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 12px; }
+.pact .mini.ok { background: #16a34a; color: #fff; } .pact .mini.no { background: #7f1d1d; color: #fff; }
+.atag { font-size: 12px; color: #4ade80; font-weight: 700; }
+.dlabel.other.ally { border-color: #22c55e; } .dlabel.other.ally .lock { color: #4ade80; }
+.allyreq { position: absolute; right: 16px; top: 120px; display: flex; flex-direction: column; gap: 8px; z-index: 40; pointer-events: none; }
+.areq { pointer-events: auto; width: 290px; background: rgba(15,23,42,.96); border: 1px solid #22c55e; border-radius: 12px; padding: 12px; color: #e2e8f0; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 8px 30px rgba(0,0,0,.4); font-size: 13px; }
+.areq div { display: flex; gap: 6px; } .areq button { flex: 1; border: 0; border-radius: 8px; padding: 7px; font-weight: 700; cursor: pointer; background: #16a34a; color: #fff; } .areq button.no { background: #475569; }

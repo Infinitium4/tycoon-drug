@@ -109,6 +109,9 @@ if (net.online) {
   net.onAttacked = m => { const loss = sufferAttack(state, m.win); net.loot(m.by, loss); world.baseAttacked(m.win); hud.onAttacked(m.cartel, m.boss, m.win, loss); };
   net.onLoot = m => { if (m.amount > 0) { state.cash += m.amount; state.totalEarned += m.amount; hud.sms('Le Tueur', `Butin récupéré chez ${m.cartel} : ${Math.round(m.amount).toLocaleString('fr-FR')} €.`, 'good'); } };
   net.onHitResult = m => { const pl = net.player(m.target); hud.sms('Le Tueur', m.win ? `On a retourné la base de ${pl?.cartel ?? 'l\'autre'}. Le butin arrive.` : `Leurs gars nous attendaient. On s'est replié.`, m.win ? 'good' : 'bad'); };
+  net.onAllyReq = m => hud.allyRequest(m.from, m.cartel, m.boss);
+  net.onGift = m => { state.cash += m.amount; hud.sms('Coursier', `${m.cartel} t'envoie ${Math.round(m.amount).toLocaleString('fr-FR')} € en liquide.`, 'good'); hud.ticker(`Le cartel ${m.cartel} fait un geste envers ${state.cartel}`); };
+  net.onGave = m => { state.cash = Math.max(0, state.cash - m.amount); hud.sms('Coursier', `Valise livrée à ${m.cartel} : ${Math.round(m.amount).toLocaleString('fr-FR')} €.`, 'good'); };
   net.onSaveNow = saveNow;
   net.onKicked = () => hud.sms('Serveur', 'Ton compte vient de se connecter ailleurs. Cette fenêtre est déconnectée.', 'bad');
   net.onLost = () => { world.setOthers(net); soloSave(state); hud.sms('Serveur', 'Connexion perdue. Ta partie continue en local (sauvegardée dans ce navigateur).', 'bad'); };

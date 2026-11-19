@@ -9,7 +9,7 @@ export interface Welcome { user: string; cartel: string; boss: string; save: Sav
 export interface PlayerInfo {
   id: number; slot: number; cartel: string; boss: string;
   cash: number; earned: number; power: number; villa: number; tier: number;
-  kills: number; employees: number; heat: number; lux: number; aero: boolean;
+  kills: number; employees: number; heat: number; lux: number; aero: boolean; allies?: number[];
 }
 
 /** Adresse du serveur par défaut : la même machine si le jeu est servi par le serveur, sinon la dernière utilisée. */
@@ -25,6 +25,11 @@ export class Net {
   /** Admin validé par le serveur (mot de passe ADMIN_PASSWORD). */
   admin = false;
   onAdmin: (ok: boolean, enabled: boolean) => void = () => {};
+  onAllyReq: (m: { from: number; cartel: string; boss: string }) => void = () => {};
+  onGift: (m: { from: number; amount: number; cartel: string }) => void = () => {};
+  onGave: (m: { to: number; amount: number; cartel: string }) => void = () => {};
+  /** ids des joueurs alliés (d'après la liste du serveur) */
+  allies = new Set<number>();
   id = 0;
   slot = 0;
   /** Nombre max de joueurs annoncé par le serveur. */
@@ -68,12 +73,16 @@ export class Net {
             this.welcome = { user: m.user, cartel: m.cartel, boss: m.boss, save: m.save, isNew: m.isNew };
             try { localStorage.setItem('td-server', url); } catch { /* */ }
             finish('ok'); break;
-          case 'world': this.players = (m.players as PlayerInfo[]).filter(p => p.id !== this.id); this.dom = m.dom; this.ctrl = m.ctrl || {}; this.onWorld(m.ext); break;
+          case 'world': { const me = (m.players as PlayerInfo[]).find(p => p.id === this.id); this.allies = new Set(me?.allies ?? []); }
+            this.players = (m.players as PlayerInfo[]).filter(p => p.id !== this.id); this.dom = m.dom; this.ctrl = m.ctrl || {}; this.onWorld(m.ext); break;
           case 'attacked': this.onAttacked(m); break;
           case 'loot': this.onLoot(m); break;
           case 'hitResult': this.onHitResult(m); break;
           case 'admin': this.admin = m.ok === true; this.onAdmin(this.admin, m.enabled === true); break;
           case 'news': this.onNews(m.text); break;
+          case 'allyReq': this.onAllyReq(m); break;
+          case 'gift': this.onGift(m); break;
+          case 'gave': this.onGave(m); break;
         }
       };
     });
@@ -90,6 +99,10 @@ export class Net {
   }
   /** Le serveur tire lui-même l'issue de l'attaque (le client ne peut pas tricher dessus). */
   hit(target: number) { this.send({ t: 'hit', target }); }
+  ally(target: number) { this.send({ t: 'ally', target }); }
+  allyAnswer(from: number, yes: boolean) { this.send({ t: 'allyAnswer', from, yes }); }
+  unally(target: number) { this.send({ t: 'unally', target }); }
+  give(target: number, amount: number) { this.send({ t: 'give', target, amount }); }
   loot(to: number, amount: number) { this.send({ t: 'loot', to, amount }); }
   news(text: string) { this.send({ t: 'news', text }); }
   adminLogin(pass: string) { this.send({ t: 'admin', pass }); }

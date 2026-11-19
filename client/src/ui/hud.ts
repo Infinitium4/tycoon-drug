@@ -4,11 +4,11 @@ import type { Net, PlayerInfo } from '../net';
 import type { Control } from '../control';
 import {
   GRIP, miliceVehicles, CITY, CREW, DISTRICTS, GANGS, HEAT, PRESSURE, pressureLevel, LAB_KEYS, LINES, LabKey, LineKey, MILICE_REPEL, OPS, OpKey, PRODUCTS, PRODUCT_KEYS, ProductKey,
-  STATIONS, STATION_KEYS, StationKey, TIERS, productsOf, stats, BIZ, BizKey, LANDS, LAND_KEYS, LandKey, LUX, LUX_KEYS, LuxKey, HITS, HitKey, BOSSES, VILLA, COUNTRY, LAYOUT, OTHER_SLOTS, ROUTES, ROUTE_KEYS, RouteKey, aeroCycle, aeroCargo,
+  SEA_Z, PORT_ROAD_X, STATIONS, STATION_KEYS, StationKey, TIERS, productsOf, stats, BIZ, BizKey, LANDS, LAND_KEYS, LandKey, LUX, LUX_KEYS, LuxKey, HITS, HitKey, BOSSES, VILLA, COUNTRY, LAYOUT, OTHER_SLOTS, ROUTES, ROUTE_KEYS, RouteKey, aeroCycle, aeroCargo, shipCycle, shipCargo,
 } from '../sim/config';
 import {
   GameState, SimEvent, employees, bribe, bribeCost, canLaunch, districtAction, districtFactor, launchOp, maxAffordable, opChance,
-  productPrice, selectProduct, totalCost, upgrade, power, needsLand, buyLand, buyLux, villaTier, hitPrice, canHit, orderHit, prestige, buyCountry, selectRoute, pvpPrice, pvpChance, orderPvp, syncUnits,
+  productPrice, selectProduct, totalCost, upgrade, power, needsLand, buyLand, buyLux, villaTier, hitPrice, canHit, orderHit, prestige, buyCountry, selectRoute, pvpPrice, pvpChance, orderPvp, syncUnits, wareTotal, wareValue,
 } from '../sim/sim';
 import { World } from '../render/scene';
 import { gameHour, nightFactor, DAY_LENGTH } from '../render/fx';
@@ -64,6 +64,7 @@ export class Hud {
       <div class="camctl"><button data-rot="-1" title="Tourner (A)">⟲</button><button data-rot="1" title="Tourner (E)">⟳</button><button data-home title="Recentrer (R)">⌂</button></div>
       <canvas class="minimap" id="minimap" title="Clique pour y aller"></canvas>
       <div class="pc" id="pc"></div>
+      <div class="allyreq" id="allyreq"></div>
       <div class="pc admin" id="admin"></div>
       <div class="cartel" id="cartel"></div>
       <div class="labels" id="labels"></div>
@@ -125,13 +126,16 @@ export class Hud {
       clopes: ['', 'Vrai entrepôt pour les cartouches. On charge des semi-remorques.', 'Entrepôt « Tabac Export » : on fournit la moitié de la région.'],
       armes: ['', 'Le bunker est monté. Les caisses arrivent des Balkans.', 'Hangar camouflé : on arme les gars et on revend le reste.'],
       casse: ['', 'Atelier monté, avec le pont et la grue.', 'La casse tourne à plein : compacteur et trois équipes.'],
+      transport: ['', 'Nouveau dépôt couvert : plus de transpalettes, plus de bornes.', 'Flotte de chariots électriques : ça charge et ça file.'],
+      entrepot: ['', 'Le hangar a doublé. Racks sur trois niveaux.', 'Méga-entrepôt : quais de chargement et conteneur de transit.'],
+      port: ['', 'Deuxième portique monté, le hangar de transit grandit.', 'Terminal complet : trois portiques, douane dans la poche.'],
       villa: ['', 'On a emménagé dans la villa. Piscine possible, gardes au portail.', 'Le manoir est à toi. Les voisins font semblant de rien voir.', 'Le château. T\'es plus un dealer, t\'es un seigneur.'],
       base: ['', 'On a refait toute la place : dalle neuve, clôture opaque.', 'La base est blindée : murs béton et barbelés.'],
     };
     world.onTierUp = (k, t) => { const m = TIER_MSG[k]?.[t]; if (m) this.sms(k === 'milice' || k === 'base' ? 'Chef d\'équipe' : crew(), m, 'good'); };
     this.q('.nav').addEventListener('click', e => {
       const b = (e.target as HTMLElement).closest('[data-go]') as HTMLElement | null; if (!b) return;
-      if (b.dataset.go === 'base') world.goTo(2, -6, 0.8); else if (b.dataset.go === 'villa') world.goTo(VILLA.x, VILLA.z, 0.9); else if (b.dataset.go === 'map') world.goTo(50, 0, 0.13); else world.goTo(CITY.x0 + CITY.cell * CITY.size / 2, CITY.z0 + CITY.cell * CITY.size / 2, 0.3);
+      if (b.dataset.go === 'base') world.goTo(2, -6, 0.8); else if (b.dataset.go === 'villa') world.goTo(VILLA.x, VILLA.z, 0.9); else if (b.dataset.go === 'map') world.goTo(45, 25, 0.12); else world.goTo(CITY.x0 + CITY.cell * CITY.size / 2, CITY.z0 + CITY.cell * CITY.size / 2, 0.3);
     });
     const mm = this.q('#minimap') as HTMLCanvasElement;
     const mmGo = (e: PointerEvent) => { const r = mm.getBoundingClientRect(), B = World.BOUNDS; this.world.goTo(B.x0 + ((e.clientX - r.left) / r.width) * (B.x1 - B.x0), B.z0 + ((e.clientY - r.top) / r.height) * (B.z1 - B.z0)); this.world.follow = false; };
@@ -142,6 +146,13 @@ export class Hud {
     });
     this.q('#panel').addEventListener('click', e => this.onPanelClick(e.target as HTMLElement));
     this.q('#pc').addEventListener('click', e => this.onPcClick(e.target as HTMLElement));
+    this.q('#pc').addEventListener('input', e => { const i = e.target as HTMLInputElement; if (i.dataset.giftin) this.giftVals.set(Number(i.dataset.giftin), i.value); });
+    this.q('#allyreq').addEventListener('click', e => {
+      const b = (e.target as HTMLElement).closest('[data-ans]') as HTMLElement | null; if (!b || !this.net) return;
+      const from = Number(b.dataset.from), yes = b.dataset.ans === '1';
+      this.net.allyAnswer(from, yes); b.closest('.areq')?.remove();
+      if (yes) this.sms('Bras droit', 'Poignée de main faite. Nos gars ne tireront plus sur les leurs.', 'good');
+    });
   }
 
   private onPanelClick(t: HTMLElement) {
@@ -194,6 +205,7 @@ export class Hud {
         break;
       }
       case 'biz': {
+        if (ev.key === 'port') this.sms('Le capitaine', `Cargo de ${ROUTES[this.s.route].name} à quai, conteneurs passés sans fouille. +${fmt(ev.amount)}.`, 'good');
         if (ev.key === 'aero') this.sms('Le pilote', `Vol de ${ROUTES[this.s.route].name} posé et déchargé : ${ROUTES[this.s.route].cargo}. +${fmt(ev.amount)}.`, 'good');
         this.earned.push({ t: performance.now(), v: ev.amount });
         if (Math.random() < 0.5) this.world.burst('money', ev.x, ev.z + 3, 5);
@@ -275,6 +287,7 @@ export class Hud {
   /** Chaque frame : positionne les étiquettes. */
   frame() {
     const far = this.world.camera.zoom < 0.32; if (far !== this.root.classList.contains('far')) this.root.classList.toggle('far', far);
+    const vfar = this.world.camera.zoom < 0.2; if (vfar !== this.root.classList.contains('vfar')) this.root.classList.toggle('vfar', vfar);
     const place = (el: HTMLElement, v: THREE.Vector3) => { const p = this.world.project(v); el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`; };
     for (const st of this.world.stations) place(this.labels.get(st.key)!, st.pos);
     this.dLabels.forEach((el, i) => place(el, this.world.districtAnchors[i]));
@@ -339,7 +352,7 @@ export class Hud {
     for (const lk of LAND_KEYS) {
       const el = this.lLabels[lk], own = s.land[lk], L = LANDS[lk];
       el.style.display = own ? 'none' : '';
-      const html = `<div class="dname">${L.name}</div><div class="dtier">À vendre · ${lk === 'ouest' ? 'contrebande, armes' : lk === 'nord' ? 'casse auto' : 'aérodrome, imports par avion'}</div><div class="lock ${s.cash >= L.price ? 'ok' : ''}">Acheter : ${fmt(L.price)}</div>`;
+      const html = `<div class="dname">${L.name}</div><div class="dtier">À vendre · ${lk === 'ouest' ? 'contrebande, armes' : lk === 'nord' ? 'casse auto, entrepôt' : lk === 'port' ? 'port, imports par cargo' : 'aérodrome, imports par avion'}</div><div class="lock ${s.cash >= L.price ? 'ok' : ''}">Acheter : ${fmt(L.price)}</div>`;
       if (el.innerHTML !== html) el.innerHTML = html;
     }
     DISTRICTS.forEach((d, i) => {
@@ -382,7 +395,7 @@ export class Hud {
       this.copBtn.disabled = s.cash < c;
     }
     this.renderPanel(false);
-    if (this.pcTab) this.renderPc();
+    if (this.pcTab && !(document.activeElement as HTMLElement | null)?.dataset?.giftin) this.renderPc();
   }
 
   // ---------------- minicarte ----------------
@@ -411,6 +424,8 @@ export class Hud {
     // ta base, tes terrains, ton repaire
     rect(-18, -22, 18.8, 6.5, '#e5e7eb');
     for (const lk of LAND_KEYS) if (s.land[lk]) { const L = LANDS[lk]; rect(L.x0, L.z0, L.x1, L.z1, '#cbd5e1'); }
+    rect(B.x0, SEA_Z, B.x1, B.z1, '#2b7bb0'); rect(B.x0, SEA_Z - 8, B.x1, SEA_Z, '#d9c48f');
+    line(PORT_ROAD_X, R.z1, PORT_ROAD_X, LANDS.port.z0); rect(LANDS.port.x0, LANDS.port.z0, LANDS.port.x1, LANDS.port.z1, s.land.port ? '#cbd5e1' : '#94a3b8');
     rect(VILLA.x0, VILLA.z0, VILLA.x1, VILLA.z1, '#facc15');
     rect(50, -6, 66, 6, '#3b82f6');                                   // commissariat
     COUNTRY.forEach((c, i) => { g.fillStyle = s.country[i] ? '#facc15' : '#a3a3a3'; g.beginPath(); g.arc(X(c.x), Z(c.z), 2.5, 0, Math.PI * 2); g.fill(); });
@@ -490,11 +505,23 @@ export class Hud {
       seen.add(p.id);
       let lb = this.oLabels.get(p.id);
       if (!lb) { lb = document.createElement('div'); lb.className = 'dlabel other'; lb.onclick = () => this.openPc('contrats'); labels.appendChild(lb); this.oLabels.set(p.id, lb); }
-      const html2 = `<div class="dname">Cartel ${esc(p.cartel)}</div><div class="dtier">Boss : ${esc(p.boss)} · ${['Maison', 'Villa', 'Manoir', 'Château'][p.villa] ?? ''}</div><div class="dstat">Fortune ${fmt(p.cash)} · milice ${p.power.toFixed(0)}</div><div class="lock">Contrat sur sa base</div>`;
+      const al = n!.allies.has(p.id); lb.classList.toggle('ally', al);
+      const html2 = `<div class="dname">${al ? '🤝 ' : ''}Cartel ${esc(p.cartel)}</div><div class="dtier">Boss : ${esc(p.boss)} · ${['Maison', 'Villa', 'Manoir', 'Château'][p.villa] ?? ''}</div><div class="dstat">Fortune ${fmt(p.cash)} · milice ${p.power.toFixed(0)}</div><div class="lock">${al ? 'Allié · donner de l\'argent' : 'Contrat sur sa base'}</div>`;
+      lb.onclick = () => this.openPc(al ? 'profils' : 'contrats');
       if (lb.innerHTML !== html2) lb.innerHTML = html2;
     }
     for (const [id, lb] of this.oLabels) if (!seen.has(id)) { lb.remove(); this.oLabels.delete(id); }
   }
+  /** Un autre cartel propose une alliance. */
+  allyRequest(from: number, cartel: string, boss: string) {
+    const el = this.q('#allyreq');
+    el.querySelector(`[data-req="${from}"]`)?.remove();
+    const d = document.createElement('div'); d.className = 'areq'; d.dataset.req = String(from);
+    d.innerHTML = `<b>🤝 Proposition d'alliance</b><span>${esc(boss)} (cartel ${esc(cartel)}) veut faire front commun : pas d'attaque entre vous.</span>
+      <div><button data-ans="1" data-from="${from}">Accepter</button><button data-ans="0" data-from="${from}" class="no">Refuser</button></div>`;
+    el.appendChild(d); setTimeout(() => d.remove(), 115_000);
+  }
+  private giftVals = new Map<number, string>();
   /** Un autre joueur nous attaque. */
   onAttacked(cartel: string, boss: string, win: boolean, loss: number) {
     if (win) { this.sms('Guetteur', `On se fait allumer ! C'est le cartel ${cartel} (${boss}). Ils sont repartis avec ${fmt(loss)}.`, 'bad'); this.ticker(`Fusillade à la base de ${this.s.cartel} : le cartel ${cartel} revendique l'attaque`); }
@@ -509,6 +536,22 @@ export class Hud {
     if (t.closest('[data-pcclose]') || t === this.q('#pc')) { this.pcTab = ''; this.q('#pc').classList.remove('open'); return; }
     const tab = t.closest('[data-tab]') as HTMLElement | null;
     if (tab) { this.openPc(tab.dataset.tab as 'profils' | 'contrats'); return; }
+    const al = t.closest('[data-ally]') as HTMLElement | null;
+    if (al && this.net) {
+      const id = Number(al.dataset.ally), p = this.net.player(id);
+      if (this.net.allies.has(id)) { this.net.unally(id); this.net.allies.delete(id); this.sms('Bras droit', `C'est fini avec ${p?.cartel ?? 'eux'}. Méfie-toi maintenant.`, 'bad'); }
+      else { this.net.ally(id); al.setAttribute('disabled', ''); al.textContent = 'Demande envoyée…'; this.sms('Bras droit', `J'ai fait passer le message à ${p?.cartel ?? 'leur boss'}. On attend sa réponse.`, 'good'); }
+      this.pcHtml = '__'; return;
+    }
+    const gq = t.closest('[data-giftpct]') as HTMLElement | null;
+    if (gq) { const id = Number(gq.dataset.to), v = Math.floor(this.s.cash * Number(gq.dataset.giftpct)); this.giftVals.set(id, String(v)); this.pcHtml = ''; this.renderPc(); return; }
+    const gv = t.closest('[data-give]') as HTMLElement | null;
+    if (gv && this.net) {
+      const id = Number(gv.dataset.give), raw = (this.giftVals.get(id) ?? '').replace(/[^\d]/g, ''), amt = Math.floor(Number(raw));
+      if (!amt || amt < 1) { this.sms('Toi', 'Indique un montant.', 'bad'); return; }
+      if (amt > this.s.cash) { this.sms('Toi', 'T\'as pas autant de liquide.', 'bad'); return; }
+      this.net.give(id, amt); this.giftVals.delete(id); this.pcHtml = ''; this.renderPc(); return;
+    }
     const pv = t.closest('[data-pvp]') as HTMLElement | null;
     if (pv && !(pv as HTMLButtonElement).disabled && this.net) {
       const p = this.net.player(Number(pv.dataset.pvp)), pos = p ? OTHER_SLOTS[this.net.relSlot(p)] : null;
@@ -535,7 +578,10 @@ export class Hud {
     if (!n.players.length) return '<p class="muted">Personne d\'autre en ville pour l\'instant.</p>';
     return n.players.map((p: PlayerInfo) => `<div class="prof">${ava(p.cartel, '#a855f7')}<div><b>${esc(p.boss)}</b><small>Cartel ${esc(p.cartel)} · ${['Maison', 'Villa', 'Manoir', 'Château'][p.villa] ?? ''}${p.aero ? ' · aérodrome' : ''}</small>
       <div class="pstats"><span>Fortune <b>${fmt(p.cash)}</b></span><span>Gagné <b>${fmt(p.earned)}</b></span><span>Employés <b>${p.employees}</b></span><span>Morts <b>${p.kills}</b></span><span>Milice <b>${p.power.toFixed(0)}</b></span><span>Pression <b>${p.heat}</b></span><span>Folies <b>${p.lux}</b></span></div></div>
-      <button class="mini" data-tab="contrats">Contrat</button></div>`).join('');
+      <div class="pact">${n.allies.has(p.id) ? '<span class="atag">🤝 Allié</span>' : ''}
+        <button class="mini${n.allies.has(p.id) ? ' no' : ''}" data-ally="${p.id}">${n.allies.has(p.id) ? 'Rompre' : 'Proposer une alliance'}</button>
+        <div class="give"><input data-giftin="${p.id}" inputmode="numeric" placeholder="Montant €" value="${esc(this.giftVals.get(p.id) ?? '')}"><button class="mini" data-giftpct="0.1" data-to="${p.id}">10 %</button><button class="mini" data-giftpct="0.5" data-to="${p.id}">50 %</button><button class="mini ok" data-give="${p.id}">Donner</button></div>
+        ${n.allies.has(p.id) ? '' : '<button class="mini" data-tab="contrats">Contrat</button>'}</div></div>`).join('');
   }
   private renderPc() {
     const s = this.s, el = this.q('#pc');
@@ -560,7 +606,7 @@ export class Hud {
       };
       body = `${s.hit ? `<div class="live">Contrat en cours : ${s.hit.phase === 'go' ? 'le tueur est en route' : 'c\'est en train de se passer'}…</div>` : ''}
         <h4>Cibles</h4><div class="hits">${hb('commissaire')}${hb('journaliste')}${hb('temoin')}</div>
-        <h4>Les autres cartels</h4><div class="hits">${(this.net?.online ? this.net.players : []).map(p => {
+        <h4>Les autres cartels</h4><div class="hits">${(this.net?.online ? this.net.players.filter(p => !this.net!.allies.has(p.id)) : []).map(p => {
           const price = pvpPrice(s, p.cash), ok = !s.hit && s.hitCd.joueur <= 0 && s.cash >= price;
           const why = s.hit ? 'un contrat est en cours' : s.hitCd.joueur > 0 ? `dispo dans ${Math.ceil(s.hitCd.joueur)} s` : `${Math.round(pvpChance(s, p.power) * 100)} % de réussite (sa milice : ${p.power.toFixed(0)})`;
           return `<button class="opbtn hit" data-pvp="${p.id}" ${ok ? '' : 'disabled'}>Attaquer ${esc(p.cartel)} · ${fmt(price)}<small>${HITS.joueur.desc} — ${why}</small></button>`;
@@ -589,10 +635,17 @@ export class Hud {
           ${d.name}<small>${own ? unitPrice(productPrice(s, p), d.unit) : 'Débloquer · ' + fmt(d.unlock)}</small></button>`;
       }).join('') + `</div></div>`;
     }
-    if (k === 'aero' && L > 0) {
-      extra += `<div class="products"><small>Route d'import — un vol toutes les ${Math.round(aeroCycle(L))} s</small><div>` + ROUTE_KEYS.map(r => {
+    if (k === 'entrepot' && L > 0) {
+      const E = stats.entrepot(L, s.levels.transport), tot = wareTotal(s), pct = Math.min(100, (tot / E.capacity) * 100);
+      const lines = PRODUCT_KEYS.filter(p => s.ware[p] >= 1).map(p => `<span class="wchip" style="--c:${PRODUCTS[p].color}">${PRODUCTS[p].name} <b>${Math.floor(s.ware[p])}</b></span>`).join('') || '<span class="muted">Vide : il se remplit avec le surplus que les pick-up n\'écoulent pas.</span>';
+      extra += `<div class="products"><small>En stock — ${Math.floor(tot)} / ${E.capacity} · à l'abri des saisies</small><div class="wbar"><i style="width:${pct}%"></i></div><div class="wlist">${lines}</div>
+        <small>${s.levels.aero > 0 || s.levels.port > 0 ? `Part au prochain ${s.levels.aero > 0 ? 'vol' : 'cargo'} : <b>${fmt(wareValue(s))}</b>` : 'Construis l\'aérodrome (ou le port) pour exporter le stock à l\'étranger.'}</small></div>`;
+    }
+    if ((k === 'aero' || k === 'port') && L > 0) {
+      const ship = k === 'port';
+      extra += `<div class="products"><small>Route d'import — ${ship ? `un cargo toutes les ${Math.round(shipCycle(L))} s` : `un vol toutes les ${Math.round(aeroCycle(L))} s`}</small><div>` + ROUTE_KEYS.map(r => {
         const d = ROUTES[r], own = s.routes[r], sel = s.route === r;
-        return `<button data-route="${r}" class="prod ${sel ? 'on' : ''} ${own ? '' : 'locked'}" style="--c:#38bdf8" ${!own && s.cash < d.unlock ? 'disabled' : ''}>${d.name}<small>${own ? d.cargo + ' · ' + fmt(aeroCargo(L, r)) + '/vol' : 'Contact · ' + fmt(d.unlock)}</small></button>`;
+        return `<button data-route="${r}" class="prod ${sel ? 'on' : ''} ${own ? '' : 'locked'}" style="--c:#38bdf8" ${!own && s.cash < d.unlock ? 'disabled' : ''}>${d.name}<small>${own ? d.cargo + ' · ' + fmt(ship ? shipCargo(L, r) : aeroCargo(L, r)) + (ship ? '/cargo' : '/vol') : 'Contact · ' + fmt(d.unlock)}</small></button>`;
       }).join('') + `</div></div>`;
     }
     if (k === 'villa') {
@@ -644,6 +697,12 @@ function statRows(k: StationKey, a: number, b: number, s: GameState): [string, s
     return [['Soldats', x.soldiers, y.soldiers], ['Véhicules armés', miliceVehicles(a), miliceVehicles(b)], ['Puissance', x.power.toFixed(1), y.power.toFixed(1)], ['Solde', fmt(x.upkeep * 60) + '/min', fmt(y.upkeep * 60) + '/min']]; }
   if (k === 'villa') { const x = stats.villa(a), y = stats.villa(b), T = ['Maison', 'Villa', 'Manoir', 'Château'], ti = (L: number) => (L >= 40 ? 3 : L >= 20 ? 2 : L >= 8 ? 1 : 0);
     return [['Demeure', T[ti(a)], T[ti(b)]], ['Gardes du corps', x.guards, y.guards], ['Cash planqué', Math.round(x.hide * 100) + '%', Math.round(y.hide * 100) + '%'], ['Remise contrats', Math.round(x.hitDiscount * 100) + '%', Math.round(y.hitDiscount * 100) + '%']]; }
+  if (k === 'transport') { const x = stats.transport(a), y = stats.transport(b);
+    return [['Transpalettes / labo', x.forks, y.forks], ['Charge', '×' + x.capMult.toFixed(2), '×' + y.capMult.toFixed(2)], ['Vitesse', '×' + x.speedMult.toFixed(2), '×' + y.speedMult.toFixed(2)]]; }
+  if (k === 'entrepot') { const x = stats.entrepot(a, s.levels.transport), y = stats.entrepot(b, s.levels.transport);
+    return [['Capacité', x.capacity, y.capacity], ['Rangement', x.rate.toFixed(1) + '/s', y.rate.toFixed(1) + '/s'], ['Prime export', '×' + x.exportMult.toFixed(2), '×' + y.exportMult.toFixed(2)]]; }
+  if (k === 'port') { const r = s.route;
+    return [['Ouvriers', stats.biz('port', a).workers, stats.biz('port', b).workers], ['Par cargo', fmt(a ? shipCargo(a, r) : 0), fmt(shipCargo(b, r))], ['Rotation', Math.round(shipCycle(Math.max(1, a))) + ' s', Math.round(shipCycle(b)) + ' s'], ['Origine', ROUTES[r].name, ROUTES[r].name]]; }
   if (k === 'aero') { const r = s.route;
     return [['Ouvriers', stats.biz('aero', a).workers, stats.biz('aero', b).workers], ['Par vol', fmt(a ? aeroCargo(a, r) : 0), fmt(aeroCargo(b, r))], ['Rotation', Math.round(aeroCycle(Math.max(1, a))) + ' s', Math.round(aeroCycle(b)) + ' s'], ['Origine', ROUTES[r].name, ROUTES[r].name]]; }
   if (k in BIZ) { const bk = k as BizKey, x = stats.biz(bk, a), y = stats.biz(bk, b);

@@ -5,7 +5,7 @@ import { GameState, createGame, syncUnits } from './sim';
 
 const VERSION = 1;
 const KEYS = ['cash', 'totalEarned', 'heat', 'grip', 'time', 'comDamage', 'immunity', 'route', 'cartel', 'boss'] as const;
-const RECORDS = ['levels', 'owned', 'selected', 'land', 'lux', 'routes', 'kills'] as const;
+const RECORDS = ['levels', 'owned', 'selected', 'land', 'lux', 'routes', 'kills', 'ware'] as const;
 
 export interface SaveData { v: number; at: number; [k: string]: unknown }
 

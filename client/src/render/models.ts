@@ -1134,8 +1134,9 @@ function warehouse(w: number, h: number, d: number, wall: string, roof: string, 
   const t = textSign(sign, Math.min(w * 0.8, 4.6), 0.55, signBg, '#ffffff'); t.position.set(w * 0.15, h - 0.6, d / 2 + 0.06); g.add(t);
   return g;
 }
-export function bizModel(kind: 'clopes' | 'armes' | 'casse' | 'blanchi' | 'aero', tier: number) {
+export function bizModel(kind: 'clopes' | 'armes' | 'casse' | 'blanchi' | 'aero' | 'port', tier: number) {
   if (kind === 'aero') return aeroModel(tier);
+  if (kind === 'port') return portModel(tier);
   const g = new THREE.Group();
   if (kind === 'clopes') {
     if (tier === 0) {
@@ -1419,9 +1420,9 @@ export function cargoPlane() {
 }
 // ---------- véhicules et détails de la base ----------
 /** Camion bâché (armes : kaki, clopes : blanc, casse : dépanneuse avec épave). */
-export function lorry(kind: 'armes' | 'clopes' | 'casse') {
+export function lorry(kind: 'armes' | 'clopes' | 'casse' | 'fret') {
   const g = new THREE.Group();
-  const cab = kind === 'armes' ? '#3f4a2c' : kind === 'clopes' ? '#f8fafc' : '#f59e0b';
+  const cab = kind === 'armes' ? '#3f4a2c' : kind === 'clopes' ? '#f8fafc' : kind === 'fret' ? '#1d4ed8' : '#f59e0b';
   g.add(at(box(1.7, 1.3, 1.5, cab, 0.4, 0.15), 0, 0, 1.9));
   g.add(at(box(1.5, 0.5, 0.06, '#0f172a', 1.15, 0.03), 0, 0, 2.66));
   g.add(at(box(1.8, 0.2, 4.4, '#27272a', 0.35, 0.03), 0, 0, -0.3));
@@ -1431,7 +1432,7 @@ export function lorry(kind: 'armes' | 'clopes' | 'casse') {
     g.add(at(box(0.2, 1.2, 0.2, '#f59e0b', 0.7, 0.02), 0, 0, 0.6));
     const w = wreck(); w.scale.setScalar(0.85); w.position.set(0, 0.75, -1.1); w.rotation.z = 0; cargo.add(w);
   } else {
-    g.add(at(box(1.8, 1.7, 3.2, kind === 'armes' ? '#4d5d3a' : '#e5e7eb', 0.55, 0.12), 0, 0, -0.9));
+    g.add(at(box(1.8, 1.7, 3.2, kind === 'armes' ? '#4d5d3a' : kind === 'fret' ? '#cbd5e1' : '#e5e7eb', 0.55, 0.12), 0, 0, -0.9));
     if (kind === 'clopes') { const t = textSign('TRANSPORTS EXPRESS', 3, 0.4, '#e5e7eb', '#1d4ed8'); t.position.set(0.92, 1.5, -0.9); t.rotation.y = Math.PI / 2; g.add(t); }
     for (let i = 0; i < 4; i++) cargo.add(at(cbox(0.6, 0.45, 0.6, kind === 'armes' ? '#4d5d3a' : '#fde68a', 0.04), (i % 2 - 0.5) * 0.7, 0.85, -1.5 + Math.floor(i / 2) * 0.8));
   }
@@ -1497,4 +1498,119 @@ export function otherBase(tier: number, villaT: number, towers: number, cartel: 
   const pole = cyl(0.07, 0.07, 6, '#52525b', 6); pole.position.set(0, 3, D / 2 - 0.5); g.add(pole);
   const flag = textSign(cartel.toUpperCase(), 3, 1, '#7e22ce', '#ffffff'); flag.position.set(1.6, 5.3, D / 2 - 0.5); g.add(flag);
   return g;
+}
+
+// ---------- transporteurs & entrepôt ----------
+/** Dépôt des transpalettes : auvent, bornes de recharge, chariots garés. */
+export function transportModel(tier: number) {
+  const g = new THREE.Group(), w = 6 + tier * 2;
+  for (const [x, z] of [[-w / 2, -2], [w / 2, -2], [-w / 2, 2], [w / 2, 2]]) g.add(at(box(0.2, 3, 0.2, '#475569', 0, 0.03), x, 0, z));
+  g.add(at(box(w + 0.6, 0.18, 4.8, tier >= 2 ? '#1e3a8a' : '#64748b', 3, 0.04), 0, 0, 0));
+  const n = 2 + tier * 2;
+  for (let i = 0; i < n; i++) {
+    const x = -w / 2 + 1 + i * ((w - 2) / Math.max(1, n - 1));
+    g.add(at(box(0.35, 1.2, 0.25, '#22c55e', 0, 0.05), x, 0, -2.1));                     // borne de recharge
+    const f = forklift(); f.position.set(x, 0, -0.4); f.rotation.y = Math.PI; g.add(f);
+  }
+  const t = textSign('TRANSPORTS', 3.2, 0.5, '#1d4ed8', '#ffffff'); t.position.set(0, 3.5, 2.45); g.add(t);
+  for (let i = 0; i < 2 + tier; i++) g.add(at(pallet(6), w / 2 + 1.8, i * 0.0, -1.5 + i * 1.4));
+  return g;
+}
+/** Le grand hangar de stockage (3 tailles), quais de chargement, racks de palettes. */
+export function entrepotModel(tier: number) {
+  const g = new THREE.Group();
+  const w = [10, 14, 18][tier], d = [7, 9, 11][tier], h = [4, 5, 6.2][tier];
+  g.add(warehouse(w, h, d, '#cbd5e1', '#475569', 'ENTREPÔT', '#0f172a'));
+  for (let i = 0; i < 1 + tier; i++) { const door = rollDoor(2.2, 2.4); door.position.set(w / 2 - 2 - i * 3, 0, d / 2 + 0.04); g.add(door); g.add(at(box(2.6, 0.9, 1.2, '#57534e', 0, 0.04), w / 2 - 2 - i * 3, 0, d / 2 + 0.7)); }
+  // racks de palettes devant
+  for (let r = 0; r < 1 + tier; r++) {
+    const rack = new THREE.Group();
+    for (const x of [-1.6, 1.6]) for (const z of [-0.5, 0.5]) rack.add(at(box(0.1, 2.6, 0.1, '#f97316', 0, 0.02), x, 0, z));
+    for (const y of [0.05, 1.3]) { rack.add(at(box(3.4, 0.08, 1.1, '#f97316', y, 0.02), 0, 0, 0)); rack.add(at(cartons(3, '#fde68a', '#a16207'), 0, y + 0.1, -0.2)); }
+    rack.position.set(-w / 2 + 2.4 + r * 4, 0, d / 2 + 3.2); g.add(rack);
+  }
+  if (tier >= 1) for (let i = 0; i < 3; i++) g.add(at(box(0.15, 0.15, 0.15, '#dc2626', 0, 0.02), -w / 2 + 0.5, h - 0.8, -d / 2 + 1 + i * 2));
+  if (tier >= 2) { const c = box(6, 2.6, 2.4, '#0f766e', 0, 0.04); c.position.set(-w / 2 - 2.6, 0, 0); c.rotation.y = Math.PI / 2; g.add(c); }
+  return g;
+}
+
+
+// ---------- le port ----------
+const CONT_COLS = ['#b91c1c', '#1d4ed8', '#0f766e', '#ca8a04', '#7c3aed', '#ea580c', '#475569', '#15803d'];
+/** Conteneur maritime 20 pieds (couché le long de x). */
+export function container(color: string) {
+  const g = new THREE.Group();
+  g.add(box(6, 2.5, 2.4, color, 0, 0.03));
+  for (let i = 0; i < 12; i++) g.add(at(box(0.08, 2.3, 2.44, color, 0.1, 0.01), -2.75 + i * 0.5, 0, 0));
+  g.add(at(box(0.06, 2.4, 2.3, '#1f2937', 0.05, 0.01), 3.01, 0, 0));
+  return g;
+}
+/** Portique de quai : jambes, poutre qui avance au-dessus de l'eau, chariot + palonnier animés. */
+export function crane(color = '#f59e0b') {
+  const g = new THREE.Group();
+  for (const x of [-3.5, 3.5]) for (const z of [-3, 3]) { g.add(at(box(0.6, 16, 0.6, color, 0, 0.04), x, 0, z)); g.add(at(box(1, 0.6, 1.2, '#334155', 0, 0.04), x, 0, z)); }
+  for (const x of [-3.5, 3.5]) g.add(at(box(0.6, 0.6, 7, color, 8, 0.04), x, 0, 0));
+  g.add(at(box(8, 1.2, 1.2, color, 15.6, 0.05), 0, 0, -3)); g.add(at(box(8, 1.2, 1.2, color, 15.6, 0.05), 0, 0, 3));
+  const boom = box(2.2, 1.1, 30, color, 16.8, 0.05); boom.position.z = 7; g.add(boom);
+  g.add(at(box(3, 2.2, 3, '#e5e7eb', 16.8, 0.05), 0, 0, -6.5));                     // salle des machines
+  for (const z of [-4, 6, 16]) { const t = box(0.18, 0.18, 8, '#1f2937', 0, 0.01); t.position.set(0, 21, z); t.rotation.x = z < 0 ? 0.6 : -0.25; g.add(t); }
+  g.add(at(box(0.5, 4.4, 0.5, color, 17.8, 0.03), 0, 0, -1));
+  const trolley = new THREE.Group(); trolley.add(box(2.4, 0.8, 1.6, '#1f2937', 0, 0.04)); trolley.position.set(0, 16.2, 10); g.add(trolley);
+  const spreader = new THREE.Group(); spreader.add(box(6.2, 0.35, 2.4, '#fbbf24', 0, 0.03));
+  const cable = box(0.06, 1, 0.06, '#111827', 0.35, 0); spreader.add(cable);
+  const load = container('#b91c1c'); load.position.y = -2.55; spreader.add(load);
+  trolley.add(spreader);
+  g.userData = { trolley, spreader, cable, load };
+  return g;
+}
+/** Bâtiment du port (3 paliers) : hangar de transit, piles de conteneurs, portiques. */
+export function portModel(tier: number) {
+  const g = new THREE.Group();
+  const wh = warehouse([12, 16, 20][tier], [5, 6, 7][tier], 7, '#e2e8f0', '#0f766e', 'TRANSIT MARITIME', '#0f766e');
+  wh.position.set(-6, 0, -3); g.add(wh);
+  const r = mulberryLocal(11 + tier);
+  for (let st = 0; st < 2 + tier * 2; st++) for (let h = 0; h < 1 + Math.min(2, tier) + (st % 2); h++) {
+    const c = container(CONT_COLS[Math.floor(r() * CONT_COLS.length)]); c.position.set(10 + (st % 4) * 6.6, h * 2.55, -5 + Math.floor(st / 4) * 3); g.add(c);
+  }
+  for (let x = -14; x < 44; x += 4) g.add(at(cyl(0.3, 0.35, 0.6, '#1f2937', 8), x, 0.3, 11.4));   // bites d'amarrage
+  const cranes: THREE.Group[] = [];
+  for (let i = 0; i < 1 + tier; i++) { const c = crane(i % 2 ? '#dc2626' : '#f59e0b'); c.position.set(14 + i * 11, 0, 7.5); g.add(c); cranes.push(c); }
+  g.add(at(box(4, 3, 3, '#cbd5e1', 0, 0.05), -20, 0, 4)); // poste de douane
+  const t = textSign('DOUANE', 2.4, 0.5, '#1e3a8a', '#ffffff'); t.position.set(-20, 2.4, 5.55); g.add(t);
+  g.userData.cranes = cranes;
+  return g;
+}
+function mulberryLocal(a: number) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+/** Porte-conteneurs : coque le long de x, château à l'arrière, conteneurs sur le pont (cachables). */
+export function cargoShip() {
+  const g = new THREE.Group();
+  const L = 40, W = 8;
+  g.add(at(box(L, 3.2, W, '#1e293b', -1.6, 0.2), 0, 0, 0));
+  g.add(at(box(L, 0.9, W + 0.04, '#991b1b', -1.6, 0.05), 0, 0, 0));                 // antifouling
+  const bow = box(6, 3.2, W * 0.72, '#1e293b', -1.6, 0.3); bow.position.x = L / 2 + 1.8; bow.rotation.y = 0; g.add(bow);
+  const bow2 = box(3, 3.2, W * 0.4, '#1e293b', -1.6, 0.3); bow2.position.x = L / 2 + 5; g.add(bow2);
+  g.add(at(box(L + 2, 0.3, W - 0.4, '#7f1d1d', 1.6, 0.02), 1, 0, 0));
+  // château arrière
+  g.add(at(box(6, 7, W - 1, '#f8fafc', 1.9, 0.1), -L / 2 + 4, 0, 0));
+  g.add(at(box(6.6, 0.8, W + 1.2, '#f8fafc', 8.4, 0.05), -L / 2 + 4, 0, 0));
+  for (let i = 0; i < 4; i++) g.add(at(box(0.05, 0.6, W - 1.3, '#0f172a', 3 + i * 1.5, 0.01), -L / 2 + 7.03, 0, 0));
+  g.add(at(cyl(0.9, 1.1, 3, '#0f766e', 12), -L / 2 + 2.4, 10.4, 0));             // cheminée
+  const cargo = new THREE.Group(), r = mulberryLocal(3);
+  for (let row = 0; row < 5; row++) for (let col = 0; col < 3; col++) for (let h = 0; h < 2 + (row % 2); h++) {
+    const c = container(CONT_COLS[Math.floor(r() * CONT_COLS.length)]); c.position.set(-6 + row * 6.3, 1.9 + h * 2.55, -2.5 + col * 2.5); cargo.add(c);
+  }
+  g.add(cargo);
+  g.add(at(box(0.25, 6, 0.25, '#e5e7eb', 1.9, 0.02), L / 2 - 1, 0, 0));
+  g.userData = { cargo };
+  return g;
+}
+/** La mer : texture de vagues générée, que la scène fait défiler. */
+export function seaTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d')!;
+  x.fillStyle = '#1f6fa3'; x.fillRect(0, 0, 256, 256);
+  const r = mulberryLocal(5);
+  for (let i = 0; i < 900; i++) { const a = r(); x.fillStyle = a < 0.5 ? 'rgba(14,74,120,0.35)' : 'rgba(120,190,230,0.22)'; x.beginPath(); x.ellipse(r() * 256, r() * 256, 6 + r() * 16, 1 + r() * 2, 0, 0, Math.PI * 2); x.fill(); }
+  for (let i = 0; i < 70; i++) { x.fillStyle = 'rgba(255,255,255,0.35)'; x.fillRect(r() * 256, r() * 256, 3 + r() * 6, 1); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }

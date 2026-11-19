@@ -1,6 +1,6 @@
 // Scène 3D : caméra iso, décor, et synchronisation avec l'état de la simulation.
 import * as THREE from 'three';
-import { OTHER_SLOTS, aeroCycle, RING, COUNTRY, VILLA, LUX_KEYS, LuxKey, BOSSES, BIZ, BIZ_KEYS, BizKey, LANDS, LAND_KEYS, LandKey, inLand, stats, COMMISSARIAT, GRIP, TOWER_POS, miliceVehicleTier, BASE_TIERS, TOWER_LEVELS, VEHICLE_TIERS, VISUAL_TIERS, tierOf, CITY, DISTRICTS, LAB_KEYS, LAYOUT, LINES, LabKey, LineKey, PRODUCTS, PRODUCT_KEYS, StationKey, blockCenter, roadX, roadZLine } from '../sim/config';
+import { SEA_Z, PORT_ROAD_X, shipCycle, TRANSPORT_POS, ENTREPOT_POS, STATION_LAND, OTHER_SLOTS, aeroCycle, RING, COUNTRY, VILLA, LUX_KEYS, LuxKey, BOSSES, BIZ, BIZ_KEYS, BizKey, LANDS, LAND_KEYS, LandKey, inLand, stats, COMMISSARIAT, GRIP, TOWER_POS, miliceVehicleTier, BASE_TIERS, TOWER_LEVELS, VEHICLE_TIERS, VISUAL_TIERS, tierOf, CITY, DISTRICTS, LAB_KEYS, LAYOUT, LINES, LabKey, LineKey, PRODUCTS, PRODUCT_KEYS, StationKey, blockCenter, roadX, roadZLine } from '../sim/config';
 import { FIGHT_TIME, GameState, benchPos, labPile } from '../sim/sim';
 import * as M from './models';
 import { Particles, glow, nightFactor } from './fx';
@@ -25,7 +25,11 @@ export class World {
   yaw = 0;
   desiredYaw = 0;
   /** Limites de la carte : base, aérodrome, ville, campagne, bases des autres. */
-  static BOUNDS = { x0: -195, x1: 275, z0: -185, z1: 195 };
+  static CAM_DIST = 600;
+  /** Place la caméra : même angle de vue, mais loin derrière (plus de coupe au dézoom). */
+  placeCam() { this.camera.position.copy(this.target).addScaledVector(this.offset.clone().normalize(), World.CAM_DIST); }
+  private shadowSpan = 40;
+  static BOUNDS = { x0: -195, x1: 275, z0: -185, z1: 250 };
   private ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   frustum = 26;
   districtAnchors: THREE.Vector3[] = [];
@@ -98,7 +102,12 @@ export class World {
   lands = {} as Record<LandKey, { g: THREE.Group; sign: THREE.Object3D; anchor: THREE.Vector3; owned: boolean }>;
   private bizCrew = {} as Record<BizKey, THREE.Group[]>;
   private plane!: THREE.Group;
-  private loops: { g: THREE.Group; kind: BizKey; idx: number; out: THREE.Vector2[]; back: THREE.Vector2[]; period: number }[] = [];
+  private ship!: THREE.Group;
+  private portTrucks: THREE.Group[] = [];
+  private seaTex?: THREE.Texture;
+  private foam?: THREE.Mesh;
+  private wareForks: THREE.Group[] = [];
+  private loops: { g: THREE.Group; kind: BizKey | 'fret'; idx: number; out: THREE.Vector2[]; back: THREE.Vector2[]; period: number }[] = [];
   private dogs: { g: THREE.Group; path: THREE.Vector2[]; t: number; speed: number }[] = [];
   private cams: THREE.Group[] = [];
   private smoker!: THREE.Group;
@@ -132,10 +141,11 @@ export class World {
     this.renderer.toneMappingExposure = 1.05;
     container.appendChild(this.renderer.domElement);
 
-    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 300);
+    // caméra orthographique reculée loin le long de l'axe de vue : le dézoom ne coupe plus rien
+    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, World.CAM_DIST * 3);
     this.camera.zoom = 0.42; this.desiredZoom = 0.8;   // petite intro : la caméra plonge sur la base
     this.scene.background = new THREE.Color('#bfe3f5');
-    this.scene.fog = new THREE.Fog('#bfe3f5', 150, 340);
+    this.scene.fog = new THREE.Fog('#bfe3f5', World.CAM_DIST + 130, World.CAM_DIST + 420);
 
     this.hemi = new THREE.HemisphereLight('#e8f4ff', '#8fbf6a', 1.5); this.scene.add(this.hemi);
     const sun = new THREE.DirectionalLight('#fff3dc', 2.6);
@@ -406,6 +416,7 @@ export class World {
       for (let x = l.x0 + 4; x < l.x1; x += 4) lg.add(M.paint(x, l.z0, x, l.z1, '#b3ada2', 0.05));
       for (let z = l.z0 + 4; z < l.z1; z += 4) lg.add(M.paint(l.x0, z, l.x1, z, '#b3ada2', 0.05));
       const sides: number[][] = lk === 'ouest' ? [[l.x0, l.z0, l.x1, l.z0], [l.x0, l.z0, l.x0, l.z1], [l.x0, l.z1, -33, l.z1], [-27, l.z1, l.x1, l.z1]]
+        : lk === 'port' ? [[l.x0, l.z0, PORT_ROAD_X - 3, l.z0], [PORT_ROAD_X + 3, l.z0, l.x1, l.z0], [l.x0, l.z0, l.x0, l.z1], [l.x1, l.z0, l.x1, l.z1]]
         : lk === 'aero' ? [[l.x0, l.z0, l.x1, l.z0], [l.x0, l.z0, l.x0, l.z1], [l.x1, l.z0, l.x1, l.z1], [l.x0, l.z1, -73, l.z1], [-67, l.z1, l.x1, l.z1]]
         : [[l.x0, l.z0, l.x1, l.z0], [l.x0, l.z0, l.x0, l.z1], [l.x1, l.z0, l.x1, l.z1]];
       for (const [x0, z0, x1, z1] of sides) {
@@ -416,10 +427,10 @@ export class World {
       if (lk === 'ouest') lg.add(M.at2(M.box(6, 0.07, 2.2, '#5b6170', 0, 0), -30, 7.4));
       if (lk === 'aero') lg.add(M.at2(M.box(6, 0.07, LAYOUT.roadZ - l.z1, '#5b6170', 0, 0), -70, (l.z1 + LAYOUT.roadZ) / 2));
       bakeStatic(lg, true); lg.visible = false; this.scene.add(lg);
-      const sign = M.forSale(); sign.position.set(cx, 0, lk === 'ouest' ? l.z1 - 2 : l.z1 + 1.5); this.scene.add(sign);
+      const sign = M.forSale(); sign.position.set(lk === 'port' ? PORT_ROAD_X + 6 : cx, 0, lk === 'ouest' ? l.z1 - 2 : lk === 'port' ? l.z0 - 2 : l.z1 + 1.5); this.scene.add(sign);
       this.lands[lk] = { g: lg, sign, anchor: new THREE.Vector3(cx, 2.5, cz + 4), owned: false };
     }
-    const crewRole: Record<BizKey, M.Role> = { clopes: 'packer', armes: 'guard', casse: 'harvester', aero: 'packer' };
+    const crewRole: Record<BizKey, M.Role> = { clopes: 'packer', armes: 'guard', casse: 'harvester', aero: 'packer', port: 'guard' };
     for (const k of BIZ_KEYS) {
       const b = BIZ[k];
       const c = this.tiered(k, b.x, b.z, [0, 1, 2].map(t => M.bizModel(k, t)), 0.2);
@@ -431,14 +442,17 @@ export class World {
     // camions des business : ils partent livrer en ville et reviennent
     const V2 = (pts: number[][]) => pts.map(([x, z]) => new THREE.Vector2(x, z));
     const out = LAYOUT.roadZ - 0.9, back = LAYOUT.roadZ + 0.9, city = CITY.x0 + 3;
+    const routes2: { fret?: [number[][], number[][], number] } = {};
     const routes: Record<'armes' | 'clopes' | 'casse', [number[][], number[][], number]> = {
       armes: [[[-41, -8], [-41, 4.2], [-31.5, 4.2], [-31.5, out], [city, out]], [[city, back], [-32.5, back], [-32.5, 5], [-41.8, 5], [-41.8, -8]], 56],
       clopes: [[[-27.6, 3], [-27.6, out], [city, out]], [[city, back], [-28.6, back], [-28.6, 3]], 44],
       casse: [[[4, -30.5], [4, -25.6], [-21.3, -25.6], [-21.3, out], [city, out]], [[city, back], [-21.3, back], [-21.3, -25.6], [4, -25.6], [4, -30.5]], 64],
     };
-    for (const k of ['armes', 'clopes', 'casse'] as const) for (let i = 0; i < 3; i++) {
+    // fret : l'entrepôt envoie ses palettes à l'aérodrome
+    routes2.fret = [[[ENTREPOT_POS.x - 2, -30.5], [ENTREPOT_POS.x - 2, -25.6], [-21.3, -25.6], [-21.3, out], [-70.6, out], [-70.6, -6], [-82, -14]], [[-82, -14.8], [-69.4, -6], [-69.4, back], [-21.3, back], [-21.3, -25.6], [ENTREPOT_POS.x - 2, -25.6], [ENTREPOT_POS.x - 2, -30.5]], 70];
+    for (const k of ['armes', 'clopes', 'casse', 'fret'] as const) for (let i = 0; i < 3; i++) {
       const g = this.withLights(M.optimize(M.lorry(k)), 1.7); g.visible = false; this.scene.add(g);
-      const [o, b, P] = routes[k];
+      const [o, b, P] = k === 'fret' ? routes2.fret! : routes[k];
       this.loops.push({ g, kind: k, idx: i, out: V2(o), back: V2(b), period: P });
     }
     // détails de la base : chien de garde, caméras, groupe électrogène, poubelles, le gars en pause clope
@@ -451,6 +465,16 @@ export class World {
     this.deco(M.bins(), 15.4, -20.6).position.y = 0.2;
     for (let i = 0; i < 3; i++) this.deco(M.box(1.2, 0.15, 1.2, '#a07a4f', 0.2 + i * 0.16, 0.02), -16, -16.8);
     this.smoker = M.character('packer'); this.smoker.position.set(-15.6, 0.45, 2.2); this.smoker.rotation.y = 0.9; this.scene.add(this.smoker);
+    // transporteurs (dépôt des transpalettes) et entrepôt (grand hangar)
+    for (const [k, pos, models, pw, pd] of [['transport', TRANSPORT_POS, [0, 1, 2].map(t => M.transportModel(t)), 9, 6], ['entrepot', ENTREPOT_POS, [0, 1, 2].map(t => M.entrepotModel(t)), 14, 10]] as const) {
+      const c = this.tiered(k, pos.x, pos.z, models as THREE.Group[], 0.2);
+      const plot = M.plot(pw, pd); plot.position.set(pos.x, 0, pos.z); plot.visible = false; this.scene.add(plot); this.plots[k] = plot;
+      bizStations.push({ key: k, pos: new THREE.Vector3(pos.x, k === 'entrepot' ? 7.5 : 5, pos.z), meshes: [c, plot] });
+    }
+    for (let i = 0; i < 3; i++) { const f = M.optimize(M.forklift()); f.visible = false; this.scene.add(f); this.wareForks.push(f); }
+    // le cargo et ses camions porte-conteneurs
+    this.ship = M.cargoShip(); this.ship.visible = false; this.scene.add(this.ship);
+    for (let i = 0; i < 2; i++) { const t = this.withLights(M.optimize(M.lorry('fret')), 1.7); t.visible = false; this.scene.add(t); this.portTrucks.push(t); }
     this.plane = M.optimize(M.cargoPlane()); this.plane.visible = false; this.scene.add(this.plane);
     for (let i = 0; i < 2; i++) { const t = this.withLights(M.optimize(M.utilityVan()), 1.5); t.visible = false; this.scene.add(t); this.aeroTrucks.push(t); }
     // le repaire : pelouse, allée, demeure (4 paliers), folies, gardes du corps
@@ -530,12 +554,16 @@ export class World {
     road(C[1].x, R.z0, C[1].x, C[1].z + 6);
     road(R.x1, R.z0, C[2].x, R.z0); road(C[2].x, R.z0, C[2].x, C[2].z + 6);
     road(R.x1, R.z1, C[3].x, R.z1); road(C[3].x, R.z1, C[3].x, C[3].z - 7);
+    // route du port, la côte, la mer
+    road(PORT_ROAD_X, R.z1, PORT_ROAD_X, LANDS.port.z0 + 2);
+    for (let z = R.z1 + 8; z < LANDS.port.z0; z += 14) this.lamp(PORT_ROAD_X + 2.4, z, -Math.PI / 2);
+    this.buildSea();
     // campagne : champs et bosquets
     const rnd = mulberry(7);
     const nearRoad = (x: number, z: number) =>
       (x > R.x0 - 6 && x < R.x1 + 6 && z > R.z0 - 6 && z < R.z1 + 6) || (Math.abs(z - R.z1) < 5 && x > C[0].x - 4) || (Math.abs(x - C[0].x) < 5 && z > R.z1) ||
       (Math.abs(x - C[1].x) < 5 && z < R.z0) || (Math.abs(z - R.z0) < 5 && x > R.x1) || (Math.abs(x - C[2].x) < 5 && z < R.z0) || (Math.abs(x - C[3].x) < 5 && z > R.z1) ||
-      C.some(c => Math.hypot(x - c.x, z - c.z) < 14) || OTHER_SLOTS.some(o => Math.abs(x - o.x) < 22 && Math.abs(z - o.z) < 26) || (x < 72 && z > -48 && z < 48) || (Math.abs(z - LAYOUT.roadZ) < 5 && x < 80);
+      C.some(c => Math.hypot(x - c.x, z - c.z) < 14) || z > SEA_Z - 12 || (Math.abs(x - PORT_ROAD_X) < 5 && z > R.z1) || (x > LANDS.port.x0 - 8 && x < LANDS.port.x1 + 8 && z > LANDS.port.z0 - 8) || OTHER_SLOTS.some(o => Math.abs(x - o.x) < 22 && Math.abs(z - o.z) < 26) || (x < 72 && z > -48 && z < 48) || (Math.abs(z - LAYOUT.roadZ) < 5 && x < 80);
     let fields = 0;
     for (let k = 0; k < 400 && fields < 14; k++) {
       const x = 30 + rnd() * 200, z = -120 + rnd() * 250, w = 12 + rnd() * 10, d = 9 + rnd() * 8;
@@ -543,7 +571,7 @@ export class World {
       this.deco(M.field(w, d, fields), x, z); fields++;
     }
     for (let k = 0; k < 1700; k++) {
-      const x = -195 + rnd() * 470, z = -185 + rnd() * 380;
+      const x = -195 + rnd() * 470, z = -185 + rnd() * 395;
       if (nearRoad(x, z) || (x > 160 && rnd() < 0.3)) continue;
       if (rnd() < 0.55) this.deco(M.tree(), x, z);
     }
@@ -558,6 +586,67 @@ export class World {
     // voitures qui tournent sur le périph'
     const cols = ['#f8fafc', '#1d4ed8', '#b91c1c', '#111827', '#a3a3a3', '#16a34a'];
     for (let i = 0; i < 6; i++) { const g = this.withLights(M.optimize(M.car(cols[i])), 1.3); this.scene.add(g); this.ringCars.push({ g, t: i / 6, speed: (0.008 + Math.random() * 0.004) * (i % 2 ? 1 : -1) }); }
+  }
+
+  /** Plage, vieux quai toujours là, la mer (texture qui défile) et l'écume le long du rivage. */
+  private buildSea() {
+    const P = LANDS.port;
+    this.deco(M.box(P.x0 + 600, 0.05, 12, '#e6d3a3', 0, 0), (P.x0 - 600) / 2 + P.x0 / 2 - P.x0 / 2, SEA_Z - 5);
+    this.deco(M.box(700, 0.05, 12, '#e6d3a3', 0, 0), P.x1 + 350, SEA_Z - 5);
+    this.deco(M.box(P.x1 - P.x0, 1.2, 1.4, '#9ca3af', -1, 0.02), (P.x0 + P.x1) / 2, SEA_Z + 0.2);     // mur de quai
+    for (let x = P.x0 + 3; x < P.x1; x += 6) this.deco(M.box(0.6, 0.8, 0.5, '#111827', -0.4, 0.05), x, SEA_Z + 0.95);  // pneus
+    // digue au large
+    this.deco(M.box(70, 1.6, 4, '#78716c', -0.6, 0.3), P.x1 + 6, SEA_Z + 34);
+    const lh = new THREE.Group(); lh.add(M.box(1.6, 6, 1.6, '#f8fafc', 0, 0.1)); lh.add(M.at2(M.box(1.7, 1.2, 1.7, '#dc2626', 6, 0.1), 0, 0)); lh.position.y = 1; this.deco(lh, P.x1 + 41, SEA_Z + 34);
+    this.seaTex = M.seaTexture(); this.seaTex.repeat.set(70, 30);
+    const sea = new THREE.Mesh(new THREE.PlaneGeometry(1400, 600), new THREE.MeshStandardMaterial({ map: this.seaTex, roughness: 0.18, metalness: 0.05, color: '#ffffff' }));
+    sea.rotation.x = -Math.PI / 2; sea.position.set(100, 0.04, SEA_Z + 300); sea.receiveShadow = true; this.scene.add(sea);
+    const foam = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1.6), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.5, depthWrite: false }));
+    foam.rotation.x = -Math.PI / 2; foam.position.set(100, 0.06, SEA_Z + 0.9); this.scene.add(foam); this.foam = foam;
+    // bateaux de plaisance au mouillage
+    for (const [x, z, r] of [[-60, SEA_Z + 30, 0.3], [-20, SEA_Z + 55, -0.4], [190, SEA_Z + 45, 1.2], [230, SEA_Z + 22, 0.1]]) {
+      const b = new THREE.Group(); b.add(M.box(5, 1, 1.8, '#f8fafc', -0.3, 0.3)); b.add(M.at2(M.box(2, 0.9, 1.3, '#cbd5e1', 0.7, 0.1), -0.4, 0)); b.add(M.box(0.1, 5, 0.1, '#e5e7eb', 0.7, 0));
+      b.position.set(x, 0, z); b.rotation.y = r; b.userData.bob = Math.random() * 6; this.scene.add(b); this.boats.push(b);
+    }
+  }
+  private boats: THREE.Group[] = [];
+  /** Une rotation de cargo : arrivée par l'est, accostage, portiques qui déchargent, départ vers l'ouest. */
+  private syncPort(s: GameState, time: number) {
+    if (this.seaTex) { this.seaTex.offset.x = time * 0.004; this.seaTex.offset.y = Math.sin(time * 0.2) * 0.01; }
+    if (this.foam) (this.foam.material as THREE.MeshBasicMaterial).opacity = 0.3 + 0.25 * Math.sin(time * 0.9);
+    for (const b of this.boats) { b.position.y = Math.sin(time * 1.1 + b.userData.bob) * 0.12; b.rotation.z = Math.sin(time * 0.8 + b.userData.bob) * 0.04; }
+    const L = s.levels.port, S = this.ship;
+    const cranes = (this.tierG.port?.children.find(c => c.visible)?.userData.cranes ?? []) as THREE.Group[];
+    if (!L) { S.visible = false; this.portTrucks.forEach(t => (t.visible = false)); return; }
+    const f = s.bizT.port / shipCycle(L), B = BIZ.port, dockX = B.x + 30, dockZ = SEA_Z + 5.2;
+    const ease = (t: number) => t * t * (3 - 2 * t), seg = (a: number, b: number) => Math.min(1, Math.max(0, (f - a) / (b - a)));
+    let x = dockX, z = dockZ;
+    if (f < 0.22) { const t = ease(seg(0, 0.22)); x = dockX + (1 - t) * 260; z = dockZ + (1 - t) * (1 - t) * 40; }
+    else if (f > 0.8) { const t = seg(0.8, 1); x = dockX - t * t * 320; z = dockZ + t * t * 50; }
+    S.visible = true; S.position.set(x, Math.sin(time * 0.7) * 0.08, z); S.rotation.set(0, 0, Math.sin(time * 0.5) * 0.01);
+    const unload = seg(0.3, 0.72);
+    (S.userData.cargo as THREE.Group).children.forEach((c, i, a) => (c.visible = (f < 0.3 || f > 0.8) ? f < 0.3 : i >= Math.floor(unload * a.length)));
+    if ((f < 0.22 || f > 0.8) && Math.random() < 0.3) this.fx.emit('blacksmoke', S.position.x - 17.6, 13, S.position.z, 1);
+    // portiques : le chariot va chercher un conteneur sur le navire et le pose sur le quai
+    cranes.forEach((c, i) => {
+      const u = c.userData, docked = f > 0.28 && f < 0.75, ph = (time * 0.18 + i * 0.4) % 1;
+      const along = docked ? (ph < 0.5 ? ease(ph * 2) : 1 - ease((ph - 0.5) * 2)) : 0.5;
+      (u.trolley as THREE.Group).position.z = 1 + along * 14;
+      const drop = docked ? Math.max(0, Math.sin(ph * Math.PI * 4)) * 8 : 0;
+      (u.spreader as THREE.Group).position.y = -2 - drop; (u.cable as THREE.Mesh).scale.y = 2 + drop; (u.cable as THREE.Mesh).position.y = -(1 + drop) + 0.35;
+      (u.load as THREE.Object3D).visible = docked && ph < 0.5;
+    });
+    // camions : quai -> hangar de transit, pendant le déchargement
+    this.portTrucks.forEach((t, i) => {
+      const k = seg(0.32 + i * 0.08, 0.78);
+      t.visible = k > 0 && k < 1; if (!t.visible) return;
+      const ph = (k * 3) % 1, go = ph < 0.5 ? ease(ph * 2) : 1 - ease((ph - 0.5) * 2);
+      const ax = B.x + 18 + i * 9, az = SEA_Z - 6, bx = B.x - 2 + i * 4, bz = B.z + 4;
+      const nx = ax + (bx - ax) * go, nz = az + (bz - az) * go, dx = nx - t.position.x, dz = nz - t.position.z;
+      if (Math.abs(dx) + Math.abs(dz) > 0.01) t.rotation.y = lerpAngle(t.rotation.y, Math.atan2(dx, dz) + (ph < 0.5 ? 0 : Math.PI), 0.3);
+      t.position.set(nx, 0.25, nz);
+      const cargo = t.userData.cargo as THREE.Object3D | undefined; if (cargo) cargo.visible = ph < 0.5;
+    });
   }
 
   resize() {
@@ -591,7 +680,7 @@ export class World {
     if (!a || !b) return;
     this.target.add(a.sub(b)); this.clampTarget(this.target);
     this.desired.copy(this.target);
-    this.camera.position.copy(this.target).add(this.offset); this.camera.updateMatrixWorld();
+    this.placeCam(); this.camera.updateMatrixWorld();
   }
   /** Déplacement au clavier, dans le sens de l'écran (haut = vers le fond). */
   nudge(right: number, up: number, dt: number) {
@@ -607,7 +696,7 @@ export class World {
     const before = clientX !== undefined ? this.groundAt(clientX, clientY!) : null;
     this.camera.zoom = THREE.MathUtils.clamp(this.camera.zoom * (delta > 0 ? 0.88 : 1.13), 0.12, 2.6);
     this.camera.updateProjectionMatrix(); this.camera.updateMatrixWorld();
-    if (before) { const after = this.groundAt(clientX!, clientY!); if (after) { this.target.add(before.sub(after)); this.clampTarget(this.target); this.desired.copy(this.target); this.camera.position.copy(this.target).add(this.offset); } }
+    if (before) { const after = this.groundAt(clientX!, clientY!); if (after) { this.target.add(before.sub(after)); this.clampTarget(this.target); this.desired.copy(this.target); this.placeCam(); } }
   }
   /** Tourne la vue d'un quart de tour (dir = 1 ou -1). */
   rotate(dir: number) { this.desiredYaw += (dir * Math.PI) / 2; }
@@ -1133,7 +1222,8 @@ export class World {
       return { p: pts[pts.length - 1].clone(), dir: 0 };
     };
     for (const L of this.loops) {
-      const lvl = s.levels[L.kind], n = lvl > 0 ? tierOf(lvl, VISUAL_TIERS[L.kind]) + 1 : 0;
+      const lvl = L.kind === 'fret' ? (s.levels.aero > 0 ? s.levels.entrepot : 0) : s.levels[L.kind];
+      const n = lvl > 0 ? tierOf(lvl, VISUAL_TIERS[L.kind === 'fret' ? 'entrepot' : L.kind]) + 1 : 0;
       if (L.idx >= n) { L.g.visible = false; continue; }
       const f = (((time + (L.idx * L.period) / n) % L.period) / L.period);
       const g = L.g, cargo = g.userData.cargo as THREE.Object3D;
@@ -1148,6 +1238,7 @@ export class World {
       if (!pos) continue;
       // la marchandise part pleine (armes, clopes) ; la dépanneuse revient avec une épave
       cargo.visible = L.kind === 'casse' ? f >= 0.45 : f < 0.45 || f < 0.06;
+      if (L.kind === 'fret') cargo.visible = f < 0.45;
       if (L.kind !== 'casse' && f < 0.12) cargo.visible = f > 0.04;
       g.position.set(pos.p.x + (L.idx % 2 && !moving ? 2.6 : 0), 0.25, pos.p.y);
       g.rotation.y = lerpAngle(g.rotation.y, pos.dir, moving ? 0.25 : 1);
@@ -1297,7 +1388,18 @@ export class World {
       }
     }
     this.syncPlane(s, time);
+    this.syncPort(s, time);
     this.syncLoops(s, time);
+    for (const k of ['transport', 'entrepot'] as const) this.plots[k]!.visible = s.levels[k] === 0 && s.land[STATION_LAND[k]!];
+    // transpalettes de l'entrepôt : va-et-vient entre les racks et les quais, caisse à l'aller
+    const nw = s.levels.entrepot > 0 ? stats.transport(s.levels.transport).forks : 0, EP = ENTREPOT_POS;
+    this.wareForks.forEach((f, i) => {
+      f.visible = i < nw; if (!f.visible) return;
+      const ph = (time * 0.12 + i * 0.37) % 1, k2 = ph < 0.5 ? ph * 2 : 2 - ph * 2, e = k2 * k2 * (3 - 2 * k2);
+      const x0 = EP.x - 4 + i * 3, z0 = EP.z + 8.6, z1 = EP.z + 5.2;
+      f.position.set(x0, 0.2, z0 + (z1 - z0) * e); f.rotation.y = ph < 0.5 ? Math.PI : 0;
+      const cr = f.userData.crate as THREE.Object3D | undefined; if (cr) cr.visible = ph < 0.5;
+    });
     for (const k of BIZ_KEYS) {
       const lvl = s.levels[k], plot = this.plots[k]!;
       plot.visible = lvl === 0 && s.land[BIZ[k].land];
@@ -1464,17 +1566,23 @@ export class World {
       this.camera.updateProjectionMatrix();
       if (Math.abs(this.camera.zoom - this.desiredZoom) < 0.005) this.desiredZoom = null;
     }
-    this.sun.position.copy(this.target).add(new THREE.Vector3(20, 40, 12));
+    this.sun.position.copy(this.target).add(new THREE.Vector3(20, 40, 12).multiplyScalar(Math.max(1, this.shadowSpan / 40)));
     this.sun.target.position.copy(this.target);
     this.flash.intensity *= 0.85;
     this.yaw += (this.desiredYaw - this.yaw) * 0.12;
     const R = Math.hypot(22, 22), a = Math.PI / 4 + this.yaw;
     this.offset.set(Math.sin(a) * R, 24, Math.cos(a) * R);
-    this.camera.position.copy(this.target).add(this.offset);
+    this.placeCam();
     this.camera.lookAt(this.target);
     if (this.camShake > 0.01) { this.camera.position.x += (Math.random() - 0.5) * this.camShake; this.camera.position.y += (Math.random() - 0.5) * this.camShake; this.camShake *= 0.9; }
     const bs = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     this.fx.setScale(bs.y * this.camera.zoom / (this.camera.top - this.camera.bottom));
+    // ombres : la zone couverte suit le zoom (sinon elles s'arrêtent net quand on dézoome)
+    const span = THREE.MathUtils.clamp((this.frustum / this.camera.zoom) * 0.75, 40, 170);
+    if (Math.abs(span - this.shadowSpan) / this.shadowSpan > 0.12) {
+      this.shadowSpan = span; const c = this.sun.shadow.camera;
+      c.left = c.bottom = -span; c.right = c.top = span; c.far = 120 + span; c.updateProjectionMatrix();
+    }
     // ombres recalculées une image sur deux
     this.perf.frame++;
     if (this.perf.frame % 2 === 0 || this.quality === 0) this.renderer.shadowMap.needsUpdate = true;

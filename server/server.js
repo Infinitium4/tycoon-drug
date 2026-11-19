@@ -67,6 +67,16 @@ const wss = new WebSocketServer({
   },
 });
 
+// alliances, par nom de compte (survivent à une reconnexion) : user -> Set(user)
+const alliances = new Map();
+const allied = (a, b) => !!(a.user && b.user && alliances.get(a.user)?.has(b.user));
+const setAlly = (a, b, on) => {
+  for (const [x, y] of [[a, b], [b, a]]) {
+    if (!alliances.has(x)) alliances.set(x, new Set());
+    on ? alliances.get(x).add(y) : alliances.get(x).delete(y);
+  }
+};
+const GIFT_COOLDOWN = 10_000;
 /** id -> { ws, id, ip, slot, profile, sales, pending, bucket, lastHit, attack } */
 const players = new Map();
 let nextId = 1;
@@ -142,6 +152,7 @@ wss.on('connection', (ws, req) => {
         // contrat sur un autre joueur : délai imposé et issue tirée PAR LE SERVEUR (le client ne décide pas qu'il gagne)
         const target = players.get(Number(m.target)), now = Date.now();
         if (!p.profile || !target?.profile || target === p) return;
+        if (allied(p, target)) return; // on n'attaque pas un allié
         if (now - p.lastHit < HIT_COOLDOWN) return;
         p.lastHit = now;
         const chance = Math.min(0.85, Math.max(0.15, 0.6 + (p.profile.power - target.profile.power) * 0.03));
@@ -170,6 +181,46 @@ wss.on('connection', (ws, req) => {
         if (!p.profile || now - p.lastNews < 15_000) return;
         p.lastNews = now;
         news(`[${p.profile.cartel}] ${clean(m.text, 140)}`, p);
+        break;
+      }
+      case 'ally': {
+        // proposer une alliance : la cible doit accepter (une demande à la fois par couple)
+        const t = players.get(Number(m.target));
+        if (!p.profile || !t?.profile || t === p || allied(p, t)) return;
+        t.allyReqs = t.allyReqs || new Map();
+        if (t.allyReqs.has(p.id) && Date.now() - t.allyReqs.get(p.id) < 30_000) return;
+        t.allyReqs.set(p.id, Date.now());
+        send(t, { t: 'allyReq', from: p.id, cartel: p.profile.cartel, boss: p.profile.boss });
+        break;
+      }
+      case 'allyAnswer': {
+        const from = players.get(Number(m.from));
+        const at = p.allyReqs?.get(Number(m.from));
+        if (!p.profile || !from?.profile || !at || Date.now() - at > 120_000) return;
+        p.allyReqs.delete(from.id);
+        if (m.yes === true) {
+          setAlly(p.user, from.user, true);
+          news(`Alliance : les cartels ${from.profile.cartel} et ${p.profile.cartel} font front commun`);
+        } else send(from, { t: 'news', text: `${p.profile.cartel} a refusé ton alliance.` });
+        break;
+      }
+      case 'unally': {
+        const t = players.get(Number(m.target));
+        if (!p.profile || !t?.profile || !allied(p, t)) return;
+        setAlly(p.user, t.user, false);
+        news(`Rupture : le cartel ${p.profile.cartel} rompt son alliance avec ${t.profile.cartel}`);
+        break;
+      }
+      case 'give': {
+        // don d'argent : plafonné à ce que le donneur déclare avoir, 1 don toutes les 10 s
+        const t = players.get(Number(m.target)), now = Date.now();
+        if (!p.profile || !t?.profile || t === p || now - (p.lastGive || 0) < GIFT_COOLDOWN) return;
+        const amount = Math.floor(num(m.amount, 0, p.profile.cash));
+        if (amount < 1) return;
+        p.lastGive = now;
+        p.profile.cash -= amount; // évite de redonner le même argent avant le prochain état
+        send(p, { t: 'gave', to: t.id, amount, cartel: t.profile.cartel });
+        send(t, { t: 'gift', from: p.id, amount, cartel: p.profile.cartel });
         break;
       }
       case 'admin': {
@@ -232,7 +283,8 @@ setInterval(() => { for (const p of players.values()) { if (!p.alive) { p.ws.ter
 
 // Toutes les secondes : liste des joueurs, qui domine chaque quartier, ventes des autres.
 setInterval(() => {
-  const list = [...players.values()].filter(p => p.profile).map(p => ({ id: p.id, slot: p.slot, ...p.profile }));
+  const live = [...players.values()].filter(p => p.profile);
+  const list = live.map(p => ({ id: p.id, slot: p.slot, ...p.profile, allies: live.filter(o => o !== p && allied(p, o)).map(o => o.id) }));
   const dom = [];
   for (let i = 0; i < N_DISTRICTS; i++) {
     let best = null;

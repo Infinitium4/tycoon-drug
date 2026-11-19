@@ -1,10 +1,10 @@
 // Équilibrage du jeu. Tout ce qui est chiffré est ici.
 
 // ---------------- Bâtiments ----------------
-export type BizKey = 'clopes' | 'armes' | 'casse' | 'aero';
-export const BIZ_KEYS: BizKey[] = ['clopes', 'armes', 'casse', 'aero'];
-export type StationKey = 'field' | 'dryer' | 'packer' | 'garage' | 'office' | 'labo' | 'pharma' | 'milice' | 'villa' | BizKey;
-export const STATION_KEYS: StationKey[] = ['villa', 'field', 'dryer', 'packer', 'garage', 'office', 'labo', 'pharma', 'milice', ...BIZ_KEYS];
+export type BizKey = 'clopes' | 'armes' | 'casse' | 'aero' | 'port';
+export const BIZ_KEYS: BizKey[] = ['clopes', 'armes', 'casse', 'aero', 'port'];
+export type StationKey = 'field' | 'dryer' | 'packer' | 'garage' | 'office' | 'labo' | 'pharma' | 'milice' | 'villa' | 'transport' | 'entrepot' | BizKey;
+export const STATION_KEYS: StationKey[] = ['villa', 'field', 'dryer', 'packer', 'garage', 'office', 'labo', 'pharma', 'milice', 'transport', 'entrepot', ...BIZ_KEYS];
 export type LabKey = 'labo' | 'pharma';
 export const LAB_KEYS: LabKey[] = ['labo', 'pharma'];
 
@@ -20,17 +20,21 @@ export const STATIONS: Record<StationKey, { name: string; desc: string; baseCost
   clopes:  { name: 'Contrebande',     desc: 'Cartouches de clopes passées en Belgique et revendues sous le manteau', baseCost: 250,  unlock: 6000 },
   armes:   { name: 'Armurerie',       desc: 'Kalachs et pompes des Balkans : ça rapporte gros et ça arme la milice', baseCost: 2500, unlock: 40000 },
   casse:   { name: 'Casse auto',      desc: 'Voitures volées, désossées et revendues en pièces détachées',         baseCost: 900,  unlock: 18000 },
+  port:    { name: 'Port',            desc: 'Un cargo à quai : conteneurs de came à l\'arrivée, l\'entrepôt part à l\'export', baseCost: 200000, unlock: 8000000 },
   aero:    { name: 'Aérodrome',       desc: 'Un avion cargo par vol : la came arrive directement de l\'étranger', baseCost: 60000, unlock: 3000000 },
+  transport: { name: 'Transporteurs',  desc: 'Plus de transpalettes, plus gros, plus rapides : les labos et l\'entrepôt débitent plus', baseCost: 900, unlock: 15000 },
+  entrepot:  { name: 'Entrepôt',       desc: 'Grand hangar : le surplus (médocs, coke…) y est stocké à l\'abri des saisies et part à l\'étranger par avion ou bateau', baseCost: 4000, unlock: 60000 },
   villa:   { name: 'Repaire',         desc: 'Ta maison. Elle grandit avec toi : villa, manoir, puis château. Le PC est à l\'intérieur', baseCost: 1200 },
 };
 
 // ---------------- Terrains & business annexes ----------------
-export type LandKey = 'ouest' | 'nord' | 'aero';
-export const LAND_KEYS: LandKey[] = ['ouest', 'nord', 'aero'];
+export type LandKey = 'ouest' | 'nord' | 'aero' | 'port';
+export const LAND_KEYS: LandKey[] = ['ouest', 'nord', 'aero', 'port'];
 export const LANDS: Record<LandKey, { name: string; price: number; x0: number; x1: number; z0: number; z1: number }> = {
   ouest: { name: 'Terrain ouest', price: 12000, x0: -45, x1: -22.5, z0: -22, z1: 6.5 },
   nord:  { name: 'Terrain nord',  price: 45000, x0: -18, x1: 18.8,  z0: -46, z1: -26 },
   aero:  { name: 'Terrain de l\'aérodrome', price: 1500000, x0: -132, x1: -54, z0: -42, z1: -4 },
+  port:  { name: 'Quai du port', price: 4000000, x0: 72, x1: 136, z0: 184, z1: 204 },
 };
 /** Chaque business annexe : sur quel terrain, où, et ce qu'il rapporte. */
 export const BIZ: Record<BizKey, { land: LandKey; x: number; z: number; income: number; heat: number; color: string; sign: string }> = {
@@ -38,6 +42,7 @@ export const BIZ: Record<BizKey, { land: LandKey; x: number; z: number; income: 
   armes:   { land: 'ouest', x: -36,  z: -15, income: 26, heat: 0.04, color: '#64748b', sign: 'BALKAN IMPORT' },
   casse:   { land: 'nord',  x: 0,    z: -36, income: 10, heat: 0.03, color: '#ea580c', sign: 'CASSE DU NORD' },
   aero:    { land: 'aero',  x: -93,  z: -23, income: 0,  heat: 0.05, color: '#0ea5e9', sign: 'AÉRO-CLUB' },
+  port:    { land: 'port',  x: 92,   z: 192, income: 0,  heat: 0.06, color: '#0d9488', sign: 'TRANSIT MARITIME' },
 };
 export const inLand = (k: LandKey, x: number, z: number, m = 0) => { const l = LANDS[k]; return x > l.x0 - m && x < l.x1 + m && z > l.z0 - m && z < l.z1 + m; };
 
@@ -127,6 +132,18 @@ export const stats = {
     income: L === 0 ? 0 : BIZ[k].income * L * up(L, 0.04),
     heat: L === 0 ? 0 : BIZ[k].heat * Math.sqrt(L),
     power: k === 'armes' && L > 0 ? Math.min(6, 0.6 + L * 0.25) : 0,
+  }),
+  /** Transporteurs : transpalettes par labo, charge et vitesse. */
+  transport: (L: number) => ({
+    forks: Math.min(3, 1 + Math.floor(L / 6)),
+    capMult: 1 + 0.12 * L,
+    speedMult: up(L + 1, 0.04),
+  }),
+  /** Entrepôt : capacité, débit de rangement (dépend aussi des transporteurs), prime à l'export. */
+  entrepot: (L: number, T = 0) => ({
+    capacity: L === 0 ? 0 : Math.round(150 * Math.pow(L, 1.15)),
+    rate: L === 0 ? 0 : (2 + 1.5 * L) * (1 + 0.12 * T),
+    exportMult: Math.min(2.4, 1.4 + 0.025 * L),
   }),
   /** Repaire : gardes du corps, part du cash planquée (perquisitions), remise sur les contrats. */
   villa: (L: number) => ({
@@ -293,7 +310,7 @@ export const MISSIONS: Mission[] = [
 export const VISUAL_TIERS: Record<StationKey, number[]> = {
   field: [1, 10, 25], dryer: [1, 10, 25], packer: [1, 12, 25], garage: [1, 10, 22], office: [1, 10, 25],
   labo: [1, 8, 18], pharma: [1, 8, 18], milice: [1, 6, 14],
-  clopes: [1, 8, 18], armes: [1, 8, 18], casse: [1, 8, 18], aero: [1, 6, 15], villa: [1, 8, 20, 40],
+  clopes: [1, 8, 18], armes: [1, 8, 18], casse: [1, 8, 18], transport: [1, 6, 15], entrepot: [1, 8, 18], aero: [1, 6, 15], port: [1, 6, 15], villa: [1, 8, 20, 40],
 };
 export const VEHICLE_TIERS = [1, 5, 15, 30];          // moto -> pick-up -> utilitaire -> SUV
 export const TOWER_LEVELS = [2, 4, 7, 10, 14, 18];      // miradors qui se construisent avec le QG
@@ -356,3 +373,14 @@ export const ROUTES: Record<RouteKey, { name: string; cargo: string; mult: numbe
 /** Durée d'une rotation (atterrissage, déchargement, redécollage) et valeur d'une cargaison. */
 export const aeroCycle = (L: number) => Math.max(26, 48 - L * 0.8);
 export const aeroCargo = (L: number, r: RouteKey) => 45000 * Math.pow(L, 0.9) * ROUTES[r].mult;
+/** Port : un cargo par rotation, plus lent que l'avion mais 3× plus chargé. */
+export const shipCycle = (L: number) => Math.max(60, 110 - L * 2);
+export const shipCargo = (L: number, r: RouteKey) => 150000 * Math.pow(L, 0.9) * ROUTES[r].mult;
+/** La côte : la mer commence là (vers le sud, z > SEA_Z). */
+export const SEA_Z = 204;
+export const PORT_ROAD_X = 84;
+
+/** Stations qui demandent un terrain sans être des business. */
+export const STATION_LAND: Partial<Record<StationKey, LandKey>> = { transport: 'ouest', entrepot: 'nord' };
+export const TRANSPORT_POS = { x: -26.5, z: -16 };
+export const ENTREPOT_POS = { x: 12, z: -36 };

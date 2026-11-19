@@ -1,7 +1,7 @@
 // Simulation pure (aucune dépendance 3D) : c'est ce qui passera côté serveur plus tard.
 import {
   BAC, CITY, COMMISSARIAT, DISTRICTS, GRIP, MILICE_PARK, QG_POSTS, TOWER_LEVELS, TOWER_POS, miliceVehicles, pressureLevel, roadZLine, HEAT, LAB_KEYS, LAYOUT, LINES, LabKey, LineKey, MILICE_REPEL, OPS, OpKey, PATROL, PRODUCTS, PRODUCT_KEYS,
-  ProductKey, RIVAL, START_CASH, StationKey, blockCenter, roadX, stats, upgradeCost, BIZ, BIZ_KEYS, BizKey, LANDS, LandKey, LUX, LUX_KEYS, LuxKey, PRESTIGE_PER_LUX, HITS, HitKey, hitCost, VILLA, COUNTRY, COUNTRY_HIDE, COUNTRY_PRESTIGE, ROUTES, RouteKey, ROUTE_KEYS, aeroCycle, aeroCargo,
+  ProductKey, RIVAL, START_CASH, StationKey, blockCenter, roadX, stats, upgradeCost, BIZ, BIZ_KEYS, BizKey, LANDS, LandKey, LUX, LUX_KEYS, LuxKey, PRESTIGE_PER_LUX, HITS, HitKey, hitCost, VILLA, COUNTRY, COUNTRY_HIDE, COUNTRY_PRESTIGE, ROUTES, RouteKey, ROUTE_KEYS, aeroCycle, aeroCargo, shipCycle, shipCargo, STATION_LAND,
 } from './config';
 
 export interface Vec { x: number; z: number }
@@ -29,7 +29,7 @@ export interface Van extends Vec {
   cargo: Partial<Record<ProductKey, number>>;
   wp: number; wait: number; dest: number; slot: number; facing: number;
 }
-export interface Forklift extends Vec { id: number; lab: LabKey; state: 'wait' | 'out' | 'back'; load: number; wp: number; facing: number }
+export interface Forklift extends Vec { id: number; lab: LabKey; idx: number; state: 'wait' | 'out' | 'back'; load: number; wp: number; facing: number }
 export interface DistrictState { unlocked: boolean; active: boolean; sat: number; rival: number }
 export interface Police { phase: 'coming' | 'waiting' | 'leaving'; x: number; z: number; t: number; facing: number; gign?: boolean }
 export interface ConvoyCar extends Vec { id: number; slot: number; facing: number; path: Vec[]; back: Vec[]; firing: boolean }
@@ -61,6 +61,8 @@ export interface GameState {
   forklifts: Forklift[];
   dryer: { input: number; output: number; busy: boolean; t: number; amt: number };
   stock: Record<ProductKey, number>;
+  /** Marchandise rangée à l'entrepôt : à l'abri des saisies, part à l'export. */
+  ware: Record<ProductKey, number>;
   labs: Record<LabKey, { out: number }>;
   selected: Record<LineKey, ProductKey>;
   owned: Record<ProductKey, boolean>;
@@ -108,10 +110,10 @@ export function createGame(): GameState {
   const zero = Object.fromEntries(PRODUCT_KEYS.map(k => [k, 0])) as Record<ProductKey, number>;
   const s: GameState = {
     cash: START_CASH,
-    levels: { field: 1, dryer: 1, packer: 1, garage: 1, office: 1, labo: 0, pharma: 0, milice: 0, villa: 1, clopes: 0, armes: 0, casse: 0, aero: 0 },
+    levels: { field: 1, dryer: 1, packer: 1, garage: 1, office: 1, labo: 0, pharma: 0, milice: 0, villa: 1, clopes: 0, armes: 0, casse: 0, aero: 0, port: 0, transport: 0, entrepot: 0 },
     plants, agents: [], vans: [], forklifts: [],
     dryer: { input: 0, output: 0, busy: false, t: 0, amt: 0 },
-    stock: { ...zero },
+    stock: { ...zero }, ware: { ...zero },
     labs: { labo: { out: 0 }, pharma: { out: 0 } },
     selected: { cannabis: 'beuh', labo: 'ecsta', pharma: 'pregabaline' },
     owned: Object.fromEntries(PRODUCT_KEYS.map(k => [k, PRODUCTS[k].unlock === 0])) as Record<ProductKey, boolean>,
@@ -120,7 +122,7 @@ export function createGame(): GameState {
     heat: 0, police: null, patrols: [], convoy: [], grip: 0, cartel: 'Sans Nom', kills: { cops: 0, rivals: 0, ours: 0 }, comDamage: 0, op: null,
     cooldowns: { intimidate: 0, killcop: 0, rival: 0 },
     unpaid: 0, rivalTimer: 0, over: false, totalEarned: 0,
-    land: { ouest: false, nord: false, aero: false }, bizT: { clopes: 0, armes: 1, casse: 2, aero: 0 },
+    land: { ouest: false, nord: false, aero: false, port: false }, bizT: { clopes: 0, armes: 1, casse: 2, aero: 0, port: 0 },
     boss: 'Le Boss', lux: Object.fromEntries(LUX_KEYS.map(k => [k, false])) as Record<LuxKey, boolean>,
     hit: null, hitCd: { boss: 0, planque: 0, commissaire: 0, journaliste: 0, temoin: 0, joueur: 0 }, immunity: false, country: COUNTRY.map(() => false), satOut: DISTRICTS.map(() => 0), satCtl: DISTRICTS.map(() => 0), route: 'maroc', routes: Object.fromEntries(ROUTE_KEYS.map(k => [k, ROUTES[k].unlock === 0])) as Record<RouteKey, boolean>,
   };
@@ -155,10 +157,11 @@ export function syncUnits(s: GameState) {
       const a = mkAgent('chemist', b.x, b.z + 0.85, n); a.lab = k; a.state = 'work'; a.t = Lb.time * (0.5 + Math.random() * 0.5); a.facing = Math.PI;
       s.agents.push(a);
     }
-    if (s.levels[k] > 0 && !s.forklifts.some(f => f.lab === k)) {
-      const p = labPile(k);
-      const w = forkRoute(k)[0];
-      s.forklifts.push({ id: nextId++, lab: k, x: w.x, z: w.z, state: 'wait', load: 0, wp: 0, facing: Math.PI });
+    // transpalettes : 1 à 3 par labo selon les Transporteurs
+    const nf = s.levels[k] > 0 ? stats.transport(s.levels.transport).forks : 0;
+    while (s.forklifts.filter(f => f.lab === k).length < nf) {
+      const idx = s.forklifts.filter(f => f.lab === k).length, w = forkRoute(k, idx)[0];
+      s.forklifts.push({ id: nextId++, lab: k, idx, x: w.x, z: w.z, state: 'wait', load: 0, wp: 0, facing: Math.PI });
     }
   }
   // soldats : un par mirador construit, les autres autour du QG. Ils ne bougent pas.
@@ -190,10 +193,12 @@ export function tableSlot(i: number): Vec & { facing: number } {
 export function benchPos(k: LabKey, i: number): Vec { const L = LAYOUT.labs[k]; return { x: L.x - 3 + i * 2, z: L.z + 3.9 }; }
 export function labPile(k: LabKey): Vec { const L = LAYOUT.labs[k]; return { x: L.x + 5, z: L.z + 3.9 }; }
 /** Chariot : place d'attente devant le labo -> allée nord -> allée est -> stock. */
-export function forkRoute(k: LabKey): Vec[] {
+export function forkRoute(k: LabKey, idx = 0): Vec[] {
   const p = labPile(k), st = LAYOUT.stock[k];
-  const lz = LAYOUT.laneZ - (k === 'labo' ? 0.8 : 0), lx = LAYOUT.forkX[k], uz = st.z + 1.5 + (k === 'labo' ? 0.7 : 0);
-  return [{ x: p.x, z: p.z + 1.3 }, { x: p.x, z: lz }, { x: lx, z: lz }, { x: lx, z: uz }, { x: st.x, z: uz }];
+  // chaque transpalette a sa place d'attente et sa voie, décalées : ils ne se rentrent pas dedans
+  const lz = LAYOUT.laneZ - (k === 'labo' ? 0.8 : 0) + idx * 0.35, lx = LAYOUT.forkX[k] - idx * 0.35, uz = st.z + 1.5 + (k === 'labo' ? 0.7 : 0) - idx * 0.3;
+  const px = p.x - idx * 1.5;
+  return [{ x: px, z: p.z + 1.3 }, { x: px, z: lz }, { x: lx, z: lz }, { x: lx, z: uz }, { x: st.x - idx * 0.4, z: uz }];
 }
 export function parkSlot(slot: number): Vec { return { x: LAYOUT.vanPark.x + slot * LAYOUT.vanGap, z: LAYOUT.vanPark.z }; }
 /** Aller sur la voie nord de la route, retour sur la voie sud : les pick-up ne se croisent jamais. */
@@ -245,9 +250,19 @@ function stepBiz(s: GameState, dt: number, events: SimEvent[]) {
       // un avion par rotation : la cargaison est payée quand les camions l'ont rentrée au hangar
       if (s.bizT.aero >= aeroCycle(L)) {
         s.bizT.aero = 0;
-        const amount = aeroCargo(L, s.route);
+        const amount = aeroCargo(L, s.route) + exportWare(s);
         s.cash += amount; s.totalEarned += amount; s.heat = Math.min(99, s.heat + 2 * ROUTES[s.route].heat);
         events.push({ type: 'biz', key: 'aero', amount, x: BIZ.aero.x, z: BIZ.aero.z });
+      }
+      continue;
+    }
+    if (k === 'port') {
+      // un cargo par rotation : payé quand les conteneurs sont déchargés
+      if (s.bizT.port >= shipCycle(L)) {
+        s.bizT.port = 0;
+        const amount = shipCargo(L, s.route) + exportWare(s);
+        s.cash += amount; s.totalEarned += amount; s.heat = Math.min(99, s.heat + 3 * ROUTES[s.route].heat);
+        events.push({ type: 'biz', key: 'port', amount, x: BIZ.port.x, z: BIZ.port.z });
       }
       continue;
     }
@@ -347,8 +362,10 @@ export function step(s: GameState, dt: number): SimEvent[] {
   if (dr.busy) { dr.t -= dt; if (dr.t <= 0) { dr.busy = false; dr.output += dr.amt; } }
 
   // chariots élévateurs : sortie labo -> stock
+  const T = stats.transport(s.levels.transport);
   for (const f of s.forklifts) {
-    const Lb = stats.lab(s.levels[f.lab]), route = forkRoute(f.lab);
+    const L0 = stats.lab(s.levels[f.lab]), route = forkRoute(f.lab, f.idx ?? 0);
+    const Lb = { forkCap: Math.round(L0.forkCap * T.capMult), forkSpeed: L0.forkSpeed * T.speedMult };
     if (f.state === 'wait') {
       const o = s.labs[f.lab];
       if (o.out >= Math.min(Lb.forkCap, 3)) { f.load = Math.min(Lb.forkCap, Math.floor(o.out)); o.out -= f.load; f.state = 'out'; f.wp = 1; }
@@ -444,6 +461,7 @@ export function step(s: GameState, dt: number): SimEvent[] {
   }
 
   stepBiz(s, dt, events);
+  stepWarehouse(s, dt);
   stepHit(s, dt, events);
   stepPatrols(s, dt);
 
@@ -637,7 +655,7 @@ export function maxAffordable(s: GameState, k: StationKey) {
 }
 /** Un business annexe ne se construit que sur un terrain acheté. */
 export function needsLand(s: GameState, k: StationKey): LandKey | null {
-  const b = BIZ[k as BizKey]; return b && !s.land[b.land] ? b.land : null;
+  const land = BIZ[k as BizKey]?.land ?? STATION_LAND[k]; return land && !s.land[land] ? land : null;
 }
 export function buyLand(s: GameState, k: LandKey): boolean {
   if (s.land[k] || s.cash < LANDS[k].price) return false;
@@ -740,3 +758,29 @@ export function sufferAttack(s: GameState, win: boolean): number {
 }
 /** Ventes des autres joueurs dans les quartiers : elles saturent la demande pour tout le monde. */
 export function applyExt(s: GameState, ext: number[]) { ext.forEach((v, i) => { const d = s.districts[i]; if (d) d.sat = Math.min(1, d.sat + v); }); }
+
+// ---------------- Entrepôt ----------------
+/** Le surplus que les pick-up ne peuvent pas écouler part à l'entrepôt (à l'abri des saisies). */
+function stepWarehouse(s: GameState, dt: number) {
+  const L = s.levels.entrepot; if (!L) return;
+  const E = stats.entrepot(L, s.levels.transport), G = stats.garage(s.levels.garage);
+  const keep = G.capacity * G.vans * 2;                     // ce que les pick-up écoulent : on n'y touche pas
+  let room = E.capacity - wareTotal(s), budget = E.rate * dt;
+  for (const p of PRODUCT_KEYS) {
+    if (room <= 0 || budget <= 0) break;
+    const extra = s.stock[p] - keep; if (extra <= 0) continue;
+    const q = Math.min(extra, room, budget);
+    s.stock[p] -= q; s.ware[p] += q; room -= q; budget -= q;
+  }
+}
+export const wareTotal = (s: GameState) => PRODUCT_KEYS.reduce((a, p) => a + s.ware[p], 0);
+/** Valeur de l'entrepôt vendu à l'étranger (prix de base × prime export × prestige). */
+export function wareValue(s: GameState) {
+  const E = stats.entrepot(s.levels.entrepot);
+  return PRODUCT_KEYS.reduce((a, p) => a + s.ware[p] * PRODUCTS[p].price, 0) * E.exportMult * (1 + prestige(s));
+}
+/** Un avion (ou un bateau) repart avec tout l'entrepôt. */
+export function exportWare(s: GameState) {
+  if (!s.levels.entrepot) return 0;
+  const v = wareValue(s); for (const p of PRODUCT_KEYS) s.ware[p] = 0; return v;
+}
