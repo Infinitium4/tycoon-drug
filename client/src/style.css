@@ -147,3 +147,99 @@ button.go small { font-size: 13px; opacity: .9; }
 .cop { font-family: 'Nunito'; font-weight: 800; font-size: 14px; }
 .nav button { font-size: 14px; }
 .logo { letter-spacing: .5px; }
+
+/* --- v0.7 : horloge --- */
+.clock { background: #0008; border-radius: 12px; padding: 6px 12px; font-weight: 800; font-size: 14px; display: flex; align-items: center; gap: 8px; min-width: 128px; }
+.clock span { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+.clock .sun { background: #fbbf24; box-shadow: 0 0 8px #fbbf24; }
+.clock .moon { background: #e2e8f0; box-shadow: inset -4px -2px 0 #94a3b8; }
+.lock { font-size: 13px; }
+
+/* --- v0.9 : emprise sur la police --- */
+.grip { display: flex; align-items: center; gap: 8px; background: #0008; border-radius: 12px; padding: 6px 12px; }
+.grip small { font-weight: 800; color: #cbd5e1; }
+.gbar { width: 90px; height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden; }
+.gbar i { display: block; height: 100%; background: linear-gradient(90deg, #64748b, #a855f7); }
+.grip b { font-size: 13px; min-width: 70px; }
+.grip.owned b { color: #c084fc; }
+.dlabel.com { border-color: #3b82f6; min-width: 120px; }
+.dlabel.com.owned { border-color: #a855f7; }
+
+/* --- v1.0 : cartel, kill count, écran de départ --- */
+.cartel { position: absolute; top: 112px; left: 16px; background: #000b; border-radius: 14px; padding: 10px 14px; min-width: 210px; border-left: 4px solid #ef4444; }
+.cname { font-family: 'Lilita One'; font-size: 18px; letter-spacing: .5px; }
+.cstats { display: flex; gap: 14px; margin: 4px 0; }
+.cstats small { display: block; font-size: 10px; text-transform: uppercase; color: #9aa6c6; letter-spacing: .8px; }
+.cstats b { font-family: 'Lilita One'; font-weight: 400; font-size: 22px; }
+.cstats .kc b { color: #ef4444; }
+.cdetail { display: flex; gap: 10px; font-size: 12px; color: #cbd5e1; }
+.cdetail b { color: #fff; }
+.start { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, #1e293bee, #020617f5); }
+.start-card { background: #111827; border: 2px solid #334155; border-radius: 22px; padding: 30px 34px; width: min(420px, 92vw); display: flex; flex-direction: column; gap: 10px; text-align: center; }
+.start-card .logo { font-size: 40px; }
+.start-card p { color: #cbd5e1; margin: 0 0 8px; }
+.start-card label { text-align: left; font-weight: 800; font-size: 13px; color: #9aa6c6; text-transform: uppercase; letter-spacing: .8px; }
+.start-card input { font-family: 'Lilita One'; font-size: 22px; padding: 10px 14px; border-radius: 12px; border: 2px solid #334155; background: #0b1220; color: #fff; outline: none; }
+.start-card input:focus { border-color: #ef4444; }
+.start-card .go { justify-content: center; align-items: center; margin-top: 6px; }
+.start-card small { color: #64748b; }
+.go-stats { flex-wrap: wrap; }
+
+.ticker { position: absolute; left: 50%; bottom: 60px; transform: translateX(-50%); display: flex; align-items: stretch; background: #111; border-radius: 6px; overflow: hidden; box-shadow: 0 8px 24px #000a; opacity: 0; pointer-events: none; max-width: 80vw; }
+.ticker b { background: #dc2626; color: #fff; font-family: 'Lilita One'; font-weight: 400; padding: 8px 14px; font-size: 18px; letter-spacing: 1px; white-space: nowrap; }
+.ticker span { color: #fff; padding: 8px 16px; font-weight: 800; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ticker.show { animation: tick 9s forwards; }
+@keyframes tick { 0% { opacity: 0; transform: translate(-50%, 20px); } 6%, 90% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
+/* v1.1 terrains & business annexes */
+.dlabel.land { border-color: #f97316; border-style: dashed; }
+.dlabel.land .dtier { color: #fdba74; }
+.slabel b.lockd { color: #fdba74; font-size: 11px; }
+.float.biz { font-size: 18px; color: #86efac; text-shadow: 0 2px 0 #14532d, 0 0 8px #0008; }
+/* v1.2 repaire, PC du boss */
+.cartel .cboss { font-size: 12px; color: #cbd5e1; margin: -2px 0 6px; }
+.cartel .cboss b { color: #facc15; }
+.cartel .imm { color: #4ade80; font-weight: 800; }
+.opbtn.pcbtn { background: #1e293b; border-color: #38bdf8; }
+.pc { position: fixed; inset: 0; z-index: 15; display: none; align-items: center; justify-content: center; background: #020617aa; }
+.pc.open { display: flex; }
+.pcwin { width: min(720px, 94vw); max-height: 84vh; display: flex; flex-direction: column; background: #0b1220; border: 2px solid #334155; border-radius: 16px; overflow: hidden; box-shadow: 0 30px 80px #000a; font-family: 'Nunito', sans-serif; color: #e2e8f0; }
+.pcbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: linear-gradient(#1e293b, #111827); font-weight: 800; }
+.pcbar button { background: none; border: 0; color: #94a3b8; font-size: 18px; cursor: pointer; }
+.pc .tabs { display: flex; gap: 6px; padding: 10px 14px 0; }
+.pc .tabs button { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; border-radius: 10px 10px 0 0; padding: 7px 14px; font-weight: 800; cursor: pointer; }
+.pc .tabs button.on { background: #ef4444; color: #fff; border-color: #ef4444; }
+.pcbody { padding: 12px 14px 16px; overflow: auto; border-top: 2px solid #ef4444; }
+.pcbody h4 { margin: 14px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: #94a3b8; display: flex; justify-content: space-between; }
+.pcbody h4 span { color: #4ade80; text-transform: none; letter-spacing: 0; }
+.prof { display: flex; gap: 12px; align-items: center; background: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+.prof.me { border-color: #facc15; background: linear-gradient(90deg, #422006, #111827 60%); }
+.prof > div:nth-child(2) { flex: 1; }
+.prof b { font-size: 16px; } .prof small { display: block; color: #94a3b8; }
+.ava { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-family: 'Lilita One'; font-size: 22px; color: #111; background: var(--c); flex: none; }
+.pstats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 12px; color: #94a3b8; } .pstats b { color: #e2e8f0; font-size: 12px; }
+.prof .mini { background: #ef4444; color: #fff; border: 0; border-radius: 8px; padding: 6px 10px; font-weight: 800; cursor: pointer; }
+.hits { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.opbtn.hit { background: #1c1917; border-color: #7f1d1d; text-align: left; }
+.pc .live { background: #7f1d1d; color: #fff; padding: 8px 12px; border-radius: 10px; font-weight: 800; animation: blink 1s infinite alternate; }
+@keyframes blink { to { background: #b91c1c; } }
+.muted { color: #64748b; }
+.dlabel.country { border-color: #84cc16; }
+.dlabel.country.owned { border-style: solid; opacity: .8; min-width: 120px; }
+.hud.far .slabel, .hud.far .pcount { display: none !important; }
+.hud.far .dlabel { min-width: 0; padding: 3px 8px; border-width: 1px; }
+.hud.far .dlabel .dtier, .hud.far .dlabel .rival, .hud.far .dlabel .dbar { display: none; }
+.hud.far .dlabel .dname { font-size: 12px; }
+.hud.far .dlabel .lock, .hud.far .dlabel .dstat { font-size: 10px; }
+/* v1.3 multijoueur */
+.online { display: flex; align-items: center; gap: 6px; background: #0f172acc; border: 1px solid #334155; border-radius: 12px; padding: 6px 12px; font: 800 13px 'Nunito', sans-serif; color: #e2e8f0; }
+.online .dot { width: 9px; height: 9px; border-radius: 50%; background: #64748b; }
+.online .dot.on { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+.dlabel .dom { color: #e879f9; font-size: 11px; font-weight: 800; }
+.dlabel .dom.me { color: #4ade80; }
+.dlabel.other { border-color: #a855f7; cursor: pointer; }
+.dlabel.other .lock { color: #fca5a5; }
+.start .mode { display: flex; gap: 8px; margin: 6px 0 2px; }
+.start .mode button { flex: 1; padding: 9px; border-radius: 10px; border: 2px solid #334155; background: #0f172a; color: #cbd5e1; font: 800 14px 'Nunito', sans-serif; cursor: pointer; }
+.start .mode button.on { border-color: #22c55e; color: #fff; background: #14532d; }
+.start .srv { display: none; } .start .srv.show { display: block; }
+.start .hint { font-size: 11px; color: #94a3b8; margin-top: 3px; }

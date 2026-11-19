@@ -1,0 +1,9 @@
+{
+  "name": "tycoon-drug-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Serveur multijoueur de Tycoon Drug (une ville, 6 joueurs max)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "ws": "^8.18.0" }
+}

@@ -1,5 +1,6 @@
 // Chargement des modèles Kenney (CC0 / MIT, voir public/models/LICENSE-kenney.md).
 import * as THREE from 'three';
+import { weather } from './models';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const FILES = {
@@ -28,14 +29,28 @@ export async function loadAssets(onProgress?: (p: number) => void) {
   const keys = Object.keys(FILES) as AssetKey[];
   let done = 0;
   await Promise.all(keys.map(async k => {
-    const g = await loader.loadAsync(`${import.meta.env.BASE_URL}models/${FILES[k]}.glb`);
+    const url = `${import.meta.env.BASE_URL}models/${FILES[k]}`;
+    let g;
+    const embedded = (window as any).__TD_MODELS?.[FILES[k]] as string | undefined;
+    if (embedded) {
+      // version fichier unique (double-clic) : modèles et textures intégrés
+      const bin = Uint8Array.from(atob(embedded), c => c.charCodeAt(0));
+      g = await loader.parseAsync(bin.buffer, '');
+    } else if (import.meta.env.VITE_GLB_AS_JSON) {
+      // version hébergée : le .glb est emballé en base64 dans un .json
+      const { b64 } = await (await fetch(url + '.json')).json();
+      const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      g = await loader.parseAsync(bin.buffer, url.slice(0, url.lastIndexOf('/') + 1));
+    } else {
+      g = await loader.loadAsync(url + '.glb');
+    }
     g.scene.traverse(o => {
       const m = o as THREE.Mesh;
       if (m.isMesh) {
         m.castShadow = true; m.receiveShadow = true;
         const mat = m.material as THREE.MeshStandardMaterial;
         if (mat.map) { mat.map.colorSpace = THREE.SRGBColorSpace; mat.map.anisotropy = 4; }
-        mat.roughness = 0.75; mat.metalness = 0;
+        mat.roughness = 0.75; mat.metalness = 0; weather(mat, 0.8);
       }
     });
     cache.set(k, g.scene);

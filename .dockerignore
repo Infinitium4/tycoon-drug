@@ -1,0 +1,8 @@
+**/node_modules
+client/dist
+client/dist-web
+client/dist-solo
+jouer
+.git
+*.bat
+*.md

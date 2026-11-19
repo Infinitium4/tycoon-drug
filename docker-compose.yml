@@ -1,0 +1,8 @@
+services:
+  tycoon-drug:
+    build: .
+    image: tycoon-drug:latest
+    container_name: tycoon-drug
+    ports:
+      - "${PORT:-2567}:2567"
+    restart: unless-stopped
