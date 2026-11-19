@@ -1,9 +1,10 @@
 // Interface HTML par-dessus la 3D.
 import * as THREE from 'three';
 import type { Net, PlayerInfo } from '../net';
+import type { Control } from '../control';
 import {
   GRIP, miliceVehicles, CITY, CREW, DISTRICTS, GANGS, HEAT, PRESSURE, pressureLevel, LAB_KEYS, LINES, LabKey, LineKey, MILICE_REPEL, OPS, OpKey, PRODUCTS, PRODUCT_KEYS, ProductKey,
-  STATIONS, STATION_KEYS, StationKey, TIERS, productsOf, stats, BIZ, BizKey, LANDS, LAND_KEYS, LandKey, LUX, LUX_KEYS, LuxKey, HITS, HitKey, BOSSES, VILLA, COUNTRY, OTHER_SLOTS, ROUTES, ROUTE_KEYS, RouteKey, aeroCycle, aeroCargo,
+  STATIONS, STATION_KEYS, StationKey, TIERS, productsOf, stats, BIZ, BizKey, LANDS, LAND_KEYS, LandKey, LUX, LUX_KEYS, LuxKey, HITS, HitKey, BOSSES, VILLA, COUNTRY, LAYOUT, OTHER_SLOTS, ROUTES, ROUTE_KEYS, RouteKey, aeroCycle, aeroCargo,
 } from '../sim/config';
 import {
   GameState, SimEvent, employees, bribe, bribeCost, canLaunch, districtAction, districtFactor, launchOp, maxAffordable, opChance,
@@ -37,6 +38,7 @@ export class Hud {
   private cLabels: HTMLElement[] = [];
   private oLabels = new Map<number, HTMLElement>();
   net: Net | null = null;
+  control: Control | null = null;
   private pileLabels: Record<string, HTMLElement> = {};
   private copBtn!: HTMLButtonElement;
   private comLabel!: HTMLElement;
@@ -58,7 +60,9 @@ export class Hud {
         <div class="grip" id="grip"><small>Emprise sur la police</small><div class="gbar"><i id="gripFill"></i></div><b id="gripTxt">0 %</b></div>
       </div>
       <div class="stockbar" id="stock"></div>
-      <div class="nav"><button data-go="villa">Le repaire</button><button data-go="base">La base</button><button data-go="city">La ville</button></div>
+      <div class="nav"><button data-go="villa">Le repaire</button><button data-go="base">La base</button><button data-go="city">La ville</button><button data-go="map" title="Vue d'ensemble">Carte</button></div>
+      <div class="camctl"><button data-rot="-1" title="Tourner (A)">⟲</button><button data-rot="1" title="Tourner (E)">⟳</button><button data-home title="Recentrer (R)">⌂</button></div>
+      <canvas class="minimap" id="minimap" title="Clique pour y aller"></canvas>
       <div class="pc" id="pc"></div>
       <div class="pc admin" id="admin"></div>
       <div class="cartel" id="cartel"></div>
@@ -67,7 +71,7 @@ export class Hud {
       <div class="phone" id="toasts"></div>
       <div class="panel" id="panel"></div>
       <div class="overlay" id="overlay"></div>
-      <div class="help">Glisser : déplacer · Molette : zoom · Clic sur un bâtiment : améliorer · Clic sur un quartier : l'ouvrir ou le couper · Panneaux « À vendre » : agrandir la base · G : graphismes réalistes on/off · F9 : admin</div>`;
+      <div class="help">Glisser / ZQSD : déplacer · Molette : zoom · A / E : tourner · R : recentrer · Clic sur un bâtiment : améliorer · Clic sur un quartier : l'ouvrir ou le couper · Panneaux « À vendre » : agrandir la base · G : graphismes réalistes on/off · F9 : admin</div>`;
     parent.appendChild(this.root);
     const labels = this.q('#labels');
     for (const k of STATION_KEYS) {
@@ -127,7 +131,14 @@ export class Hud {
     world.onTierUp = (k, t) => { const m = TIER_MSG[k]?.[t]; if (m) this.sms(k === 'milice' || k === 'base' ? 'Chef d\'équipe' : crew(), m, 'good'); };
     this.q('.nav').addEventListener('click', e => {
       const b = (e.target as HTMLElement).closest('[data-go]') as HTMLElement | null; if (!b) return;
-      if (b.dataset.go === 'base') world.goTo(2, -6, 0.8); else if (b.dataset.go === 'villa') world.goTo(VILLA.x, VILLA.z, 0.9); else world.goTo(CITY.x0 + CITY.cell * CITY.size / 2, CITY.z0 + CITY.cell * CITY.size / 2, 0.3);
+      if (b.dataset.go === 'base') world.goTo(2, -6, 0.8); else if (b.dataset.go === 'villa') world.goTo(VILLA.x, VILLA.z, 0.9); else if (b.dataset.go === 'map') world.goTo(50, 0, 0.13); else world.goTo(CITY.x0 + CITY.cell * CITY.size / 2, CITY.z0 + CITY.cell * CITY.size / 2, 0.3);
+    });
+    const mm = this.q('#minimap') as HTMLCanvasElement;
+    const mmGo = (e: PointerEvent) => { const r = mm.getBoundingClientRect(), B = World.BOUNDS; this.world.goTo(B.x0 + ((e.clientX - r.left) / r.width) * (B.x1 - B.x0), B.z0 + ((e.clientY - r.top) / r.height) * (B.z1 - B.z0)); this.world.follow = false; };
+    mm.addEventListener('pointerdown', e => { mmGo(e); mm.setPointerCapture(e.pointerId); mm.onpointermove = ev => { if (ev.buttons) mmGo(ev); }; });
+    this.q('.camctl').addEventListener('click', e => {
+      const b = (e.target as HTMLElement).closest('button') as HTMLElement | null; if (!b) return;
+      if (b.dataset.rot) world.rotate(+b.dataset.rot); else world.resetView();
     });
     this.q('#panel').addEventListener('click', e => this.onPanelClick(e.target as HTMLElement));
     this.q('#pc').addEventListener('click', e => this.onPcClick(e.target as HTMLElement));
@@ -287,6 +298,7 @@ export class Hud {
       <div class="cdetail"><span>Flics <b>${k.cops}</b></span><span>Rivaux <b>${k.rivals}</b></span><span>Nos gars <b>${k.ours}</b></span></div>`;
     const ce = this.q('#cartel'); if (ce.innerHTML !== ch) ce.innerHTML = ch;
     this.tickOnline();
+    this.drawMinimap();
     { const h = gameHour(s.time), day = 1 + Math.floor(s.time / DAY_LENGTH + 9 / 24);
       this.q('#clock').innerHTML = `<span class="${nightFactor(s.time) > 0.5 ? 'moon' : 'sun'}"></span>Jour ${day} · ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60 / 10) * 10).padStart(2, '0')}`; }
     const now = performance.now();
@@ -337,8 +349,15 @@ export class Hud {
       const status = !st.unlocked
         ? `<div class="lock ${s.cash >= d.unlock ? 'ok' : ''}">Ouvrir un point : ${fmt(d.unlock)}</div>`
         : `<div class="dstat">${st.active ? 'Point actif' : 'Point fermé'} · prix ×${districtFactor(s, i).toFixed(1).replace('.', ',')}</div><div class="dbar"><i style="width:${(1 - st.sat) * 100}%"></i></div>`;
-      const dm = this.net?.online ? this.net.dom[i] : 0, dp = dm && dm !== this.net!.id ? this.net!.player(dm) : null;
-      const domHtml = dm === this.net?.id && dm ? '<div class="dom me">Tu domines le quartier</div>' : dp ? `<div class="dom">Dominé par ${esc(dp.cartel)}</div>` : '';
+      // contrôle du quartier : barre partagée + ton % + tendance sur la dernière minute
+      const c = this.control?.data[i];
+      let domHtml = '';
+      if (c && c.shares.length) {
+        const bar = c.shares.map(x => `<i style="width:${(x.share * 100).toFixed(1)}%;background:${x.color}" title="${esc(x.name)} ${Math.round(x.share * 100)} %"></i>`).join('');
+        const tr = Math.round(c.trend * 100), arrow = tr > 0 ? `<span class="up">▲ +${tr}</span>` : tr < 0 ? `<span class="down">▼ ${tr}</span>` : '<span class="flat">=</span>';
+        const lead = c.leader && c.leader.who !== 'me' ? `<div class="clead">Leader : <b style="color:${c.leader.color}">${esc(c.leader.name)}</b> ${Math.round(c.leader.share * 100)} %</div>` : c.leader ? '<div class="clead me">Tu contrôles le quartier</div>' : '';
+        domHtml = `<div class="ctl"><div class="cbar">${bar}</div><div class="cme">Toi <b>${Math.round(c.mine * 100)} %</b> ${arrow}</div>${lead}</div>`;
+      }
       const html = `<div class="dname">${d.name}</div><div class="dtier">${TIERS[d.tier]} · police ${pol}</div>${rival}${domHtml}${status}`;
       if (el.innerHTML !== html) el.innerHTML = html;
       el.classList.toggle('off', st.unlocked && !st.active);
@@ -364,6 +383,44 @@ export class Hud {
     }
     this.renderPanel(false);
     if (this.pcTab) this.renderPc();
+  }
+
+  // ---------------- minicarte ----------------
+  /** Vue d'ensemble : base, repaire, ville (couleur du leader de chaque quartier), autres bases, champ de vision. */
+  drawMinimap() {
+    const cv = this.q('#minimap') as HTMLCanvasElement, B = World.BOUNDS, W = 220, H = Math.round((W * (B.z1 - B.z0)) / (B.x1 - B.x0));
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px'; }
+    const g = cv.getContext('2d')!; g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const sx = W / (B.x1 - B.x0), X = (x: number) => (x - B.x0) * sx, Z = (z: number) => (z - B.z0) * sx;
+    const rect = (x0: number, z0: number, x1: number, z1: number, c: string) => { g.fillStyle = c; g.fillRect(X(x0), Z(z0), (x1 - x0) * sx, (z1 - z0) * sx); };
+    const s = this.s;
+    g.fillStyle = '#3f6b35'; g.fillRect(0, 0, W, H);
+    // routes
+    g.strokeStyle = '#8b909b'; g.lineWidth = 1.6;
+    const line = (x0: number, z0: number, x1: number, z1: number) => { g.beginPath(); g.moveTo(X(x0), Z(z0)); g.lineTo(X(x1), Z(z1)); g.stroke(); };
+    line(-140, LAYOUT.roadZ, CITY.x0, LAYOUT.roadZ);
+    const R = { x0: 66.8, x1: CITY.x0 + CITY.size * CITY.cell + 6, z0: CITY.z0 - 6, z1: CITY.z0 + CITY.size * CITY.cell + 6 };
+    g.strokeRect(X(R.x0), Z(R.z0), (R.x1 - R.x0) * sx, (R.z1 - R.z0) * sx);
+    // quartiers colorés par leur leader
+    DISTRICTS.forEach((d, i) => {
+      const x0 = CITY.x0 + d.c * CITY.cell + 2, z0 = CITY.z0 + d.r * CITY.cell + 2, c = this.control?.data[i]?.leader;
+      rect(x0, z0, x0 + CITY.block, z0 + CITY.block, c ? c.color : s.districts[i].unlocked ? '#64748b' : '#475569');
+      if (s.districts[i].unlocked && s.districts[i].active) { g.strokeStyle = '#facc15'; g.lineWidth = 1; g.strokeRect(X(x0) + 0.5, Z(z0) + 0.5, CITY.block * sx - 1, CITY.block * sx - 1); }
+    });
+    // ta base, tes terrains, ton repaire
+    rect(-18, -22, 18.8, 6.5, '#e5e7eb');
+    for (const lk of LAND_KEYS) if (s.land[lk]) { const L = LANDS[lk]; rect(L.x0, L.z0, L.x1, L.z1, '#cbd5e1'); }
+    rect(VILLA.x0, VILLA.z0, VILLA.x1, VILLA.z1, '#facc15');
+    rect(50, -6, 66, 6, '#3b82f6');                                   // commissariat
+    COUNTRY.forEach((c, i) => { g.fillStyle = s.country[i] ? '#facc15' : '#a3a3a3'; g.beginPath(); g.arc(X(c.x), Z(c.z), 2.5, 0, Math.PI * 2); g.fill(); });
+    // les autres cartels
+    if (this.net?.online) for (const p of this.net.players) { const a = this.world.otherAnchors.get(p.id); if (!a) continue; g.fillStyle = '#a855f7'; g.fillRect(X(a.x) - 4, Z(a.z) - 3, 8, 6); }
+    // champ de vision
+    const r = this.world.renderer.domElement.getBoundingClientRect();
+    const pts = [[r.left, r.top], [r.right, r.top], [r.right, r.bottom], [r.left, r.bottom]].map(([x, y]) => this.world.groundAt(x, y));
+    if (pts.every(Boolean)) { g.strokeStyle = '#ffffff'; g.lineWidth = 1.2; g.beginPath(); pts.forEach((p, k) => (k ? g.lineTo(X(p!.x), Z(p!.z)) : g.moveTo(X(p!.x), Z(p!.z)))); g.closePath(); g.stroke(); }
+    g.strokeStyle = '#0f172a'; g.lineWidth = 2; g.strokeRect(0, 0, W, H);
   }
 
   // ---------------- panneau admin (F9) ----------------

@@ -92,6 +92,8 @@ export interface GameState {
   routes: Record<RouteKey, boolean>;
   /** Ventes par quartier depuis le dernier envoi au serveur (concurrence entre joueurs). */
   satOut: number[];
+  /** Idem, pour le calcul local du contrôle des quartiers (vidé chaque seconde). */
+  satCtl: number[];
 }
 export interface Hit extends Vec { key: HitKey; target: number; phase: 'go' | 'act' | 'gone'; t: number; facing: number; path: Vec[]; win: boolean }
 
@@ -120,7 +122,7 @@ export function createGame(): GameState {
     unpaid: 0, rivalTimer: 0, over: false, totalEarned: 0,
     land: { ouest: false, nord: false, aero: false }, bizT: { clopes: 0, armes: 1, casse: 2, aero: 0 },
     boss: 'Le Boss', lux: Object.fromEntries(LUX_KEYS.map(k => [k, false])) as Record<LuxKey, boolean>,
-    hit: null, hitCd: { boss: 0, planque: 0, commissaire: 0, journaliste: 0, temoin: 0, joueur: 0 }, immunity: false, country: COUNTRY.map(() => false), satOut: DISTRICTS.map(() => 0), route: 'maroc', routes: Object.fromEntries(ROUTE_KEYS.map(k => [k, ROUTES[k].unlock === 0])) as Record<RouteKey, boolean>,
+    hit: null, hitCd: { boss: 0, planque: 0, commissaire: 0, journaliste: 0, temoin: 0, joueur: 0 }, immunity: false, country: COUNTRY.map(() => false), satOut: DISTRICTS.map(() => 0), satCtl: DISTRICTS.map(() => 0), route: 'maroc', routes: Object.fromEntries(ROUTE_KEYS.map(k => [k, ROUTES[k].unlock === 0])) as Record<RouteKey, boolean>,
   };
   syncUnits(s);
   return s;
@@ -401,7 +403,7 @@ export function step(s: GameState, dt: number): SimEvent[] {
               s.heat += 5 * Math.pow(q, 0.25) * Math.pow(D0.police, 0.2) * HEAT.perUnit * def.heat * (1 - 0.6 * s.grip / 100);
             }
             s.cash += amount; s.totalEarned += amount;
-            ds.sat = Math.min(1, ds.sat + v.load / D0.demand); s.satOut[v.dest] += v.load / D0.demand;
+            ds.sat = Math.min(1, ds.sat + v.load / D0.demand); s.satOut[v.dest] += v.load / D0.demand; s.satCtl[v.dest] += v.load / D0.demand;
             events.push({ type: 'sale', amount, x: v.x + 4, z: v.z, district: v.dest });
           }
           v.cargo = {}; v.load = 0; v.state = 'back'; v.wp = route.length - 1;

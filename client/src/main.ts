@@ -1,6 +1,7 @@
 import './style.css';
 import { createGame, step, syncUnits, applyExt, sufferAttack } from './sim/sim';
 import { Net, defaultServer, servedByServer } from './net';
+import { Control } from './control';
 import { exportSave, importSave, soloSave, soloLoad, soloClear } from './sim/save';
 import { loadAssets } from './render/assets';
 import { World } from './render/scene';
@@ -86,6 +87,11 @@ const world = new World(app);
 const hud = new Hud(app, state, world);
 const DEBUG = import.meta.env.DEV || location.search.includes('debug');
 
+// --- contrôle des quartiers : recalculé chaque seconde ---
+const control = new Control();
+hud.control = control;
+setInterval(() => { control.update(state, net); world.setControlTint(control.data.map(d => d.leader?.color ?? null)); }, 1000);
+
 // --- sauvegarde automatique : toutes les 30 s, en quittant, et quand le serveur redémarre ---
 const saveNow = () => { if (state.over) return; if (net.online) net.save(exportSave(state)); else soloSave(state); };
 setInterval(saveNow, 30_000);
@@ -120,14 +126,30 @@ canvas.addEventListener('pointermove', e => {
   if (!down) return;
   const dx = e.clientX - down.x, dy = e.clientY - down.y;
   down.moved += Math.abs(dx) + Math.abs(dy);
-  if (down.moved > 6) { world.pan(dx, dy); canvas.style.cursor = 'grabbing'; }
+  if (down.moved > 6) { world.pan(dx, dy, e.clientX, e.clientY); canvas.style.cursor = 'grabbing'; }
   down.x = e.clientX; down.y = e.clientY;
 });
 canvas.addEventListener('pointerup', e => {
   if (down && down.moved <= 6) { const k = world.pick(e.clientX, e.clientY); if (k) hud.select(k); }
   down = null; canvas.style.cursor = '';
 });
-canvas.addEventListener('wheel', e => { e.preventDefault(); world.zoom(e.deltaY); }, { passive: false });
+canvas.addEventListener('wheel', e => { e.preventDefault(); world.zoom(e.deltaY, e.clientX, e.clientY); }, { passive: false });
+// clavier : ZQSD / WASD (touches physiques) ou flèches pour se déplacer, A/E pour tourner, R pour recentrer sur la base
+const keys = new Set<string>();
+window.addEventListener('keydown', e => {
+  if ((e.target as HTMLElement).tagName === 'INPUT') return;
+  keys.add(e.code);
+  if (e.code === 'KeyQ') world.rotate(-1);
+  if (e.code === 'KeyE') world.rotate(1);
+  if (e.code === 'KeyR') world.resetView();
+});
+window.addEventListener('keyup', e => keys.delete(e.code));
+window.addEventListener('blur', () => keys.clear());
+function stepKeys(dt: number) {
+  const r = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+  const u = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+  if (r || u) world.nudge(r, u, dt);
+}
 
 world.onQuality = () => hud.sms('Réglages', 'Ton PC chauffe : j\'ai baissé un peu les effets pour garder le jeu fluide.', 'good');
 
@@ -143,6 +165,7 @@ let last = performance.now(), uiT = 0;
 function loop(now: number) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   for (const ev of step(state, dt)) { hud.onEvent(ev); if (ev.type === 'arrested') { soloClear(); if (net.online) { net.dead(); net.news(`Le boss du cartel ${state.cartel} est tombé. Sa base est rasée.`); net.bye(); } } }
+  stepKeys(dt);
   world.sync(state, now / 1000);
   world.animate(dt, now / 1000, state.time);
   world.render();

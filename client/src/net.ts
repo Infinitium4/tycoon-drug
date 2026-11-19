@@ -30,6 +30,8 @@ export class Net {
   players: PlayerInfo[] = [];
   /** Pour chaque quartier : id du joueur qui y vend le plus (0 = personne). */
   dom: number[] = [];
+  /** Poids de ventes de chaque joueur par quartier (contrôle). */
+  ctrl: Record<number, number[]> = {};
   onWorld: (ext: number[]) => void = () => {};
   onAttacked: (m: { by: number; cartel: string; boss: string; win: boolean }) => void = () => {};
   onLoot: (m: { amount: number; cartel: string }) => void = () => {};
@@ -64,7 +66,7 @@ export class Net {
             this.welcome = { user: m.user, cartel: m.cartel, boss: m.boss, save: m.save, isNew: m.isNew };
             try { localStorage.setItem('td-server', url); } catch { /* */ }
             finish('ok'); break;
-          case 'world': this.players = (m.players as PlayerInfo[]).filter(p => p.id !== this.id); this.dom = m.dom; this.onWorld(m.ext); break;
+          case 'world': this.players = (m.players as PlayerInfo[]).filter(p => p.id !== this.id); this.dom = m.dom; this.ctrl = m.ctrl || {}; this.onWorld(m.ext); break;
           case 'attacked': this.onAttacked(m); break;
           case 'loot': this.onLoot(m); break;
           case 'hitResult': this.onHitResult(m); break;

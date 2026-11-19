@@ -21,6 +21,12 @@ export class World {
   desired = new THREE.Vector3(2, 0, -6);
   desiredZoom: number | null = null;
   offset = new THREE.Vector3(22, 24, 22);
+  /** Rotation de la vue autour de la cible (par quarts de tour, animée). */
+  yaw = 0;
+  desiredYaw = 0;
+  /** Limites de la carte : base, aérodrome, ville, campagne, bases des autres. */
+  static BOUNDS = { x0: -150, x1: 250, z0: -140, z1: 140 };
+  private ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   frustum = 26;
   districtAnchors: THREE.Vector3[] = [];
   stations: StationAnchor[] = [];
@@ -564,22 +570,50 @@ export class World {
     this.camera.top = this.frustum / 2; this.camera.bottom = -this.frustum / 2;
     this.camera.updateProjectionMatrix();
   }
-  pan(dxPx: number, dyPx: number) {
+  /** Point du sol sous un pixel de l'écran. */
+  groundAt(clientX: number, clientY: number): THREE.Vector3 | null {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    return this.raycaster.ray.intersectPlane(this.ground, new THREE.Vector3());
+  }
+  private clampTarget(v: THREE.Vector3) {
+    const B = World.BOUNDS;
+    v.x = THREE.MathUtils.clamp(v.x, B.x0, B.x1); v.z = THREE.MathUtils.clamp(v.z, B.z0, B.z1);
+  }
+  /** Glisser : le point du sol attrapé reste sous la souris (même quand la vue est tournée). */
+  pan(dxPx: number, dyPx: number, clientX?: number, clientY?: number) {
     this.follow = false;
-    const h = this.renderer.domElement.clientHeight;
-    const wpp = this.frustum / (this.camera.zoom * h);
-    this.target.addScaledVector(new THREE.Vector3(1, 0, -1).normalize(), -dxPx * wpp);
-    this.target.addScaledVector(new THREE.Vector3(-1, 0, -1).normalize(), dyPx * wpp * 1.5);
-    this.target.x = THREE.MathUtils.clamp(this.target.x, -25, CITY.x0 + 80);
-    this.target.z = THREE.MathUtils.clamp(this.target.z, -45, 40);
+    this.camera.updateMatrixWorld();
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const cx = clientX ?? r.left + r.width / 2, cy = clientY ?? r.top + r.height / 2;
+    const a = this.groundAt(cx - dxPx, cy - dyPx), b = this.groundAt(cx, cy);
+    if (!a || !b) return;
+    this.target.add(a.sub(b)); this.clampTarget(this.target);
     this.desired.copy(this.target);
+    this.camera.position.copy(this.target).add(this.offset); this.camera.updateMatrixWorld();
   }
-  goTo(x: number, z: number, zoom?: number) { this.desired.set(x, 0, z); if (zoom) this.desiredZoom = zoom; }
-  zoom(delta: number) {
+  /** Déplacement au clavier, dans le sens de l'écran (haut = vers le fond). */
+  nudge(right: number, up: number, dt: number) {
+    const k = (this.frustum / this.camera.zoom) * 0.9 * dt;
+    const fwd = new THREE.Vector3(-this.offset.x, 0, -this.offset.z).normalize(), side = new THREE.Vector3(-fwd.z, 0, fwd.x);
+    this.desired.addScaledVector(side, right * k).addScaledVector(fwd, up * k); this.clampTarget(this.desired);
+    this.follow = false;
+  }
+  goTo(x: number, z: number, zoom?: number) { this.desired.set(x, 0, z); this.clampTarget(this.desired); if (zoom) this.desiredZoom = zoom; }
+  /** Molette : zoom vers le point sous la souris. */
+  zoom(delta: number, clientX?: number, clientY?: number) {
     this.desiredZoom = null;
-    this.camera.zoom = THREE.MathUtils.clamp(this.camera.zoom * (delta > 0 ? 0.9 : 1.1), 0.3, 2.6);
-    this.camera.updateProjectionMatrix();
+    const before = clientX !== undefined ? this.groundAt(clientX, clientY!) : null;
+    this.camera.zoom = THREE.MathUtils.clamp(this.camera.zoom * (delta > 0 ? 0.88 : 1.13), 0.12, 2.6);
+    this.camera.updateProjectionMatrix(); this.camera.updateMatrixWorld();
+    if (before) { const after = this.groundAt(clientX!, clientY!); if (after) { this.target.add(before.sub(after)); this.clampTarget(this.target); this.desired.copy(this.target); this.camera.position.copy(this.target).add(this.offset); } }
   }
+  /** Tourne la vue d'un quart de tour (dir = 1 ou -1). */
+  rotate(dir: number) { this.desiredYaw += (dir * Math.PI) / 2; }
+  resetView() { this.desiredYaw = Math.round(this.yaw / (Math.PI * 2)) * Math.PI * 2; this.goTo(2, -6, 0.8); }
+  /** Angle de la vue pour la minicarte (0 = vue d'origine). */
+  get viewYaw() { return this.yaw; }
   pick(clientX: number, clientY: number): StationKey | null {
     const r = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
@@ -1239,6 +1273,18 @@ export class World {
     };
     burst(); this.goTo(9, 3, 1);
   }
+  private ctlFrames: THREE.Mesh[] = [];
+  /** Liseré au sol autour de chaque quartier, à la couleur de celui qui le contrôle. */
+  setControlTint(colors: (string | null)[]) {
+    if (!this.ctlFrames.length) DISTRICTS.forEach(d => {
+      const c = blockCenter(d.r, d.c), o = CITY.block / 2 + 1.6, i = CITY.block / 2 + 0.6;
+      const sh = new THREE.Shape([new THREE.Vector2(-o, -o), new THREE.Vector2(o, -o), new THREE.Vector2(o, o), new THREE.Vector2(-o, o)]);
+      sh.holes.push(new THREE.Path([new THREE.Vector2(-i, -i), new THREE.Vector2(-i, i), new THREE.Vector2(i, i), new THREE.Vector2(i, -i)]));
+      const m = new THREE.Mesh(new THREE.ShapeGeometry(sh), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.55, depthWrite: false }));
+      m.rotation.x = -Math.PI / 2; m.position.set(c.x, 0.16, c.z); m.renderOrder = 1; this.scene.add(m); this.ctlFrames.push(m);
+    });
+    this.ctlFrames.forEach((m, k) => { const col = colors[k]; m.visible = !!col; if (col) (m.material as THREE.MeshBasicMaterial).color.set(col); });
+  }
   /** Juste après un achat de luxe : petit feu d'artifice au repaire. */
   luxBought(k: LuxKey) { const o = this.luxG[k]; this.fx.emit('confetti', o.position.x, 3, o.position.z, 40); this.goTo(o.position.x, o.position.z, 1); }
   /** Terrains achetés (dalle + clôture qui sortent de terre) et ouvriers des business annexes. */
@@ -1421,6 +1467,9 @@ export class World {
     this.sun.position.copy(this.target).add(new THREE.Vector3(20, 40, 12));
     this.sun.target.position.copy(this.target);
     this.flash.intensity *= 0.85;
+    this.yaw += (this.desiredYaw - this.yaw) * 0.12;
+    const R = Math.hypot(22, 22), a = Math.PI / 4 + this.yaw;
+    this.offset.set(Math.sin(a) * R, 24, Math.cos(a) * R);
     this.camera.position.copy(this.target).add(this.offset);
     this.camera.lookAt(this.target);
     if (this.camShake > 0.01) { this.camera.position.x += (Math.random() - 0.5) * this.camShake; this.camera.position.y += (Math.random() - 0.5) * this.camShake; this.camShake *= 0.9; }

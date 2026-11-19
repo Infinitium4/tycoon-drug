@@ -237,9 +237,12 @@ setInterval(() => {
     for (const p of players.values()) if (p.profile && p.sales[i] > 0.05 && (!best || p.sales[i] > best.sales[i])) best = p;
     dom.push(best ? best.id : 0);
   }
+  // poids de chaque joueur dans chaque quartier (pour les % de contrôle)
+  const ctrl = {};
+  for (const p of players.values()) if (p.profile) ctrl[p.id] = p.sales.map(v => +v.toFixed(3));
   for (const p of players.values()) {
     if (!p.profile) continue;
-    send(p, { t: 'world', players: list, dom, ext: p.pending.map(v => +Math.min(1, v).toFixed(4)) });
+    send(p, { t: 'world', players: list, dom, ctrl, ext: p.pending.map(v => +Math.min(1, v).toFixed(4)) });
     p.pending.fill(0);
   }
 }, 1000);
