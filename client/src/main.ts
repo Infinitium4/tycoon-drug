@@ -154,6 +154,7 @@ canvas.addEventListener('wheel', e => { e.preventDefault(); world.zoom(e.deltaY,
 // clavier : ZQSD / WASD (touches physiques) ou flèches pour se déplacer, A/E pour tourner, R pour recentrer sur la base
 const keys = new Set<string>();
 window.addEventListener('keydown', e => {
+  if ((e.target as HTMLElement)?.closest?.('input, textarea, select')) return;   // on tape dans un champ : pas de raccourcis
   if ((e.target as HTMLElement).tagName === 'INPUT') return;
   keys.add(e.code);
   if (e.code === 'KeyQ') world.rotate(-1);
@@ -172,6 +173,7 @@ world.onQuality = () => hud.sms('Réglages', 'Ton PC chauffe : j\'ai baissé un 
 
 // --- triche de test : touche P = +10k ---
 window.addEventListener('keydown', e => {
+  if ((e.target as HTMLElement)?.closest?.('input, textarea, select')) return;   // on tape dans un champ : pas de raccourcis
   if (e.key === 'F9') { e.preventDefault(); hud.toggleAdmin(); return; }
   if (e.key.toLowerCase() === 'p' && !state.over && (!net.online || net.admin)) { state.cash += 10000; hud.tick(); }
   if (e.key.toLowerCase() === 'g') { const on = world.post.toggle(); hud.sms('Réglages', on ? 'Graphismes réalistes activés.' : 'Graphismes simples (plus fluide).', 'good'); }

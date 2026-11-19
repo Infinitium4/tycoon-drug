@@ -147,6 +147,11 @@ export class Hud {
     });
     this.q('#panel').addEventListener('click', e => this.onPanelClick(e.target as HTMLElement));
     this.q('#pc').addEventListener('click', e => this.onPcClick(e.target as HTMLElement));
+    this.q('#pc').addEventListener('keydown', e => {
+      const i = e.target as HTMLInputElement; if (!i.dataset?.giftin) return;
+      e.stopPropagation();
+      if (e.key === 'Enter') (this.q('#pc').querySelector(`[data-give="${i.dataset.giftin}"]`) as HTMLElement | null)?.click();
+    });
     this.q('#pc').addEventListener('input', e => { const i = e.target as HTMLInputElement; if (i.dataset.giftin) this.giftVals.set(Number(i.dataset.giftin), i.value); });
     this.q('#allyreq').addEventListener('click', e => {
       const b = (e.target as HTMLElement).closest('[data-ans]') as HTMLElement | null; if (!b || !this.net) return;
@@ -648,7 +653,12 @@ export class Hud {
     const html = `<div class="pcwin"><div class="pcbar"><span>💻 PC du boss — ${esc(s.boss)}</span><button data-pcclose>✕</button></div>
       <div class="tabs"><button data-tab="profils" class="${this.pcTab === 'profils' ? 'on' : ''}">Profils</button><button data-tab="contrats" class="${this.pcTab === 'contrats' ? 'on' : ''}">Tueurs à gages</button></div>
       <div class="pcbody">${body}</div></div>`;
-    if (html !== this.pcHtml) { el.innerHTML = html; this.pcHtml = html; }
+    if (html !== this.pcHtml) {
+      // on garde la position de défilement (sinon on remonte en haut à chaque rafraîchissement)
+      const sc = el.querySelector('.pcbody')?.scrollTop ?? 0;
+      el.innerHTML = html; this.pcHtml = html;
+      const b = el.querySelector('.pcbody'); if (b) b.scrollTop = sc;
+    }
   }
 
   private renderPanel(force: boolean) {
