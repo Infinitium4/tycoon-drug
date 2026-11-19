@@ -1,6 +1,7 @@
 import './style.css';
 import { createGame, step, syncUnits, applyExt, sufferAttack } from './sim/sim';
 import { Net, defaultServer, servedByServer } from './net';
+import { exportSave, importSave, soloSave, soloLoad, soloClear } from './sim/save';
 import { loadAssets } from './render/assets';
 import { World } from './render/scene';
 import { Hud } from './ui/hud';
@@ -14,52 +15,97 @@ document.body.appendChild(loading);
 await loadAssets(p => { (loading.querySelector('.lbar i') as HTMLElement).style.width = Math.round(p * 100) + '%'; });
 loading.remove();
 
-// --- écran de départ : nom du cartel et du boss ---
-const { cartel, boss, online, server } = await new Promise<{ cartel: string; boss: string; online: boolean; server: string }>(resolve => {
+// --- écran de départ : solo (sauvegarde dans le navigateur) ou en ligne (compte + sauvegarde sur le serveur) ---
+const net = new Net();
+const fmtM = (v: number) => (v >= 1e6 ? (v / 1e6).toFixed(1).replace('.', ',') + ' M€' : Math.round(v).toLocaleString('fr-FR') + ' €');
+const state = await new Promise<ReturnType<typeof createGame>>(resolve => {
+  const solo = soloLoad();
   const ov = document.createElement('div'); ov.className = 'start';
   ov.innerHTML = `<div class="start-card"><div class="logo">TYCOON <span>DRUG</span></div>
     <p>Une plantation, un séchoir, un charbonneur. Le reste, c'est toi qui le construis.</p>
-    <label>Nom de ton cartel</label>
-    <input id="cname" maxlength="24" placeholder="ex : Los Nantes" autocomplete="off">
-    <label>Ton blaze (le boss, c'est toi)</label>
-    <input id="bname" maxlength="20" placeholder="ex : Le Parrain" autocomplete="off">
     <label>Mode de jeu</label>
     <div class="mode"><button data-m="solo">Solo</button><button data-m="online">En ligne (6 max)</button></div>
-    <div class="srv"><label>Adresse du serveur</label><input id="srv" autocomplete="off"><div class="hint">Lance <b>lancer-serveur.bat</b> sur le PC qui héberge. Tes potes ouvrent l'adresse affichée dans la fenêtre du serveur.</div></div>
-    <button class="go" id="cgo">Monter le business</button>
-    <small>Pas de sauvegarde : si tu quittes ou si tu tombes, ta base disparaît et tu repars de zéro.</small></div>`;
+    <div class="acc online-only"><label>Pseudo (ton compte)</label><input id="uname" maxlength="20" placeholder="ex : nils" autocomplete="username">
+      <label>Mot de passe</label><input id="upass" type="password" maxlength="100" autocomplete="current-password">
+      <div class="hint">Pas encore de compte ? Il est créé tout seul à la première connexion.</div></div>
+    <div class="cont solo-only">${solo ? `<div class="saved">Partie en cours : <b>Cartel ${String(solo.cartel ?? '').replace(/[<>&"]/g, '')}</b> · ${fmtM(Number(solo.cash) || 0)}</div>` : ''}</div>
+    <div class="newg"><label>Nom de ton cartel <span class="opt">(nouvelle partie)</span></label>
+      <input id="cname" maxlength="24" placeholder="ex : Los Nantes" autocomplete="off">
+      <label>Ton blaze <span class="opt">(nouvelle partie)</span></label>
+      <input id="bname" maxlength="20" placeholder="ex : Le Parrain" autocomplete="off"></div>
+    <label class="chk"><input type="checkbox" id="fresh"> Recommencer à zéro (efface la partie sauvegardée)</label>
+    <div class="srv online-only"><label>Adresse du serveur</label><input id="srv" autocomplete="off"></div>
+    <div class="err" id="serr"></div>
+    <button class="go" id="cgo">Jouer</button>
+    <small>Ta progression est sauvegardée. Mais si tu te fais arrêter (pression à 100), ta partie est perdue pour de bon.</small></div>`;
   document.body.appendChild(ov);
-  const input = ov.querySelector('#cname') as HTMLInputElement; input.focus();
-  const binput = ov.querySelector('#bname') as HTMLInputElement;
-  const srv = ov.querySelector('#srv') as HTMLInputElement; srv.value = defaultServer();
+  const $ = (id: string) => ov.querySelector('#' + id) as HTMLInputElement;
+  $('srv').value = defaultServer();
+  try { $('uname').value = localStorage.getItem('td-user') || ''; } catch { /* */ }
   let mode = servedByServer() ? 'online' : 'solo';
-  const setMode = (m: string) => { mode = m; ov.querySelectorAll<HTMLButtonElement>('.mode button').forEach(b => b.classList.toggle('on', b.dataset.m === m)); ov.querySelector('.srv')!.classList.toggle('show', m === 'online'); };
+  const setMode = (m: string) => {
+    mode = m;
+    ov.querySelectorAll<HTMLButtonElement>('.mode button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+    ov.querySelectorAll<HTMLElement>('.online-only').forEach(e => (e.style.display = m === 'online' ? '' : 'none'));
+    ov.querySelectorAll<HTMLElement>('.solo-only').forEach(e => (e.style.display = m === 'solo' ? '' : 'none'));
+    (ov.querySelector('.chk') as HTMLElement).style.display = m === 'online' || solo ? '' : 'none';
+    $('cgo').textContent = m === 'solo' && solo ? 'Continuer la partie' : 'Jouer';
+    (m === 'online' ? $('uname') : $('cname')).focus();
+  };
   ov.querySelectorAll<HTMLButtonElement>('.mode button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.m!)));
+  $('fresh').addEventListener('change', () => { if (mode === 'solo' && solo) $('cgo').textContent = $('fresh').checked ? 'Nouvelle partie' : 'Continuer la partie'; });
   setMode(mode);
-  const go = () => { ov.remove(); resolve({ cartel: input.value.trim() || 'Sans Nom', boss: binput.value.trim() || 'Le Boss', online: mode === 'online', server: srv.value.trim() }); };
-  ov.querySelector('#cgo')!.addEventListener('click', go);
-  for (const el of [input, binput, srv]) el.addEventListener('keydown', e => { if (e.key === 'Enter') go(); e.stopPropagation(); });
+  const err = (t: string) => { ($('serr') as unknown as HTMLElement).textContent = t; };
+  let busy = false;
+  const go = async () => {
+    if (busy) return;
+    const cartel = $('cname').value.trim() || 'Sans Nom', boss = $('bname').value.trim() || 'Le Boss', fresh = $('fresh').checked;
+    if (mode === 'solo') {
+      let s;
+      if (solo && !fresh) s = importSave(solo);
+      else { soloClear(); s = createGame(); s.cartel = cartel; s.boss = boss; }
+      ov.remove(); resolve(s); return;
+    }
+    busy = true; err(''); $('cgo').textContent = 'Connexion…';
+    const r = await net.connect($('srv').value.trim(), { user: $('uname').value.trim(), pass: $('upass').value, cartel, boss, fresh });
+    busy = false; $('cgo').textContent = 'Jouer';
+    if (r === 'auth') { err(net.error); return; }
+    if (r === 'full') { err('La ville est pleine (6 joueurs). Réessaie plus tard ou joue en solo.'); return; }
+    if (r === 'fail') { err('Serveur injoignable. Vérifie l\'adresse, ou joue en solo.'); return; }
+    try { localStorage.setItem('td-user', net.welcome!.user); } catch { /* */ }
+    const w = net.welcome!;
+    const s = w.save ? importSave(w.save) : createGame();
+    s.cartel = w.cartel; s.boss = w.boss;
+    ov.remove(); resolve(s);
+  };
+  $('cgo').addEventListener('click', go);
+  ov.querySelectorAll('input').forEach(el => el.addEventListener('keydown', e => { if ((e as KeyboardEvent).key === 'Enter') go(); e.stopPropagation(); }));
 });
 
-const state = createGame();              // pas de sauvegarde : tu quittes, tu perds tout
-state.cartel = cartel; state.boss = boss;
 const world = new World(app);
 const hud = new Hud(app, state, world);
 const DEBUG = import.meta.env.DEV || location.search.includes('debug');
 
+// --- sauvegarde automatique : toutes les 30 s, en quittant, et quand le serveur redémarre ---
+const saveNow = () => { if (state.over) return; if (net.online) net.save(exportSave(state)); else soloSave(state); };
+setInterval(saveNow, 30_000);
+window.addEventListener('beforeunload', saveNow);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });
+
 // --- multijoueur ---
-const net = new Net();
-if (online) {
+if (net.online) {
   hud.net = net;
-  const r = await net.connect(server, cartel, boss);
-  if (r === 'ok') hud.sms('Serveur', `Connecté. Tu es en ville avec ${net.players.length} autre${net.players.length > 1 ? 's' : ''} cartel${net.players.length > 1 ? 's' : ''}.`, 'good');
-  else hud.sms('Serveur', r === 'full' ? 'La ville est pleine (6 joueurs). Tu joues en solo.' : 'Serveur injoignable. Tu joues en solo.', 'bad');
+  const w = net.welcome!;
+  hud.sms('Serveur', w.save ? `Content de te revoir, ${w.boss}. Ta partie est rechargée.` : w.isNew ? `Compte « ${w.user} » créé. Ta progression sera sauvegardée.` : 'Nouvelle partie. Bonne chance.', 'good');
+  if (net.players.length) hud.sms('Serveur', `Tu es en ville avec ${net.players.length} autre${net.players.length > 1 ? 's' : ''} cartel${net.players.length > 1 ? 's' : ''}.`, 'good');
   net.onWorld = ext => { applyExt(state, ext); world.setOthers(net); };
   net.onNews = text => hud.ticker(text);
   net.onAttacked = m => { const loss = sufferAttack(state, m.win); net.loot(m.by, loss); world.baseAttacked(m.win); hud.onAttacked(m.cartel, m.boss, m.win, loss); };
   net.onLoot = m => { if (m.amount > 0) { state.cash += m.amount; state.totalEarned += m.amount; hud.sms('Le Tueur', `Butin récupéré chez ${m.cartel} : ${Math.round(m.amount).toLocaleString('fr-FR')} €.`, 'good'); } };
   net.onHitResult = m => { const pl = net.player(m.target); hud.sms('Le Tueur', m.win ? `On a retourné la base de ${pl?.cartel ?? 'l\'autre'}. Le butin arrive.` : `Leurs gars nous attendaient. On s'est replié.`, m.win ? 'good' : 'bad'); };
-  net.onLost = () => { world.setOthers(net); hud.sms('Serveur', 'Connexion perdue. Tu continues en solo.', 'bad'); };
+  net.onSaveNow = saveNow;
+  net.onKicked = () => hud.sms('Serveur', 'Ton compte vient de se connecter ailleurs. Cette fenêtre est déconnectée.', 'bad');
+  net.onLost = () => { world.setOthers(net); soloSave(state); hud.sms('Serveur', 'Connexion perdue. Ta partie continue en local (sauvegardée dans ce navigateur).', 'bad'); };
   setInterval(() => { if (net.online && !state.over) net.sendState(state); }, 1000);
   window.addEventListener('beforeunload', () => net.bye());
 }
@@ -96,7 +142,7 @@ window.addEventListener('keydown', e => {
 let last = performance.now(), uiT = 0;
 function loop(now: number) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
-  for (const ev of step(state, dt)) { hud.onEvent(ev); if (ev.type === 'arrested' && net.online) { net.news(`Le boss du cartel ${state.cartel} est tombé. Sa base est rasée.`); net.bye(); } }
+  for (const ev of step(state, dt)) { hud.onEvent(ev); if (ev.type === 'arrested') { soloClear(); if (net.online) { net.dead(); net.news(`Le boss du cartel ${state.cartel} est tombé. Sa base est rasée.`); net.bye(); } } }
   world.sync(state, now / 1000);
   world.animate(dt, now / 1000, state.time);
   world.render();

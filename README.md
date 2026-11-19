@@ -77,3 +77,13 @@ docker compose logs -f            # voir les connexions
   ```
 - Sans `ADMIN_PASSWORD`, le panneau est désactivé en ligne. 5 essais par minute max, chaque connexion est loguée (`docker compose logs`).
 - Le panneau : ajouter / fixer le cash, mettre un bâtiment à n'importe quel niveau, tout au niveau 25 / 50, pression à 0, tout débloquer, château + toutes les folies. La touche P (+10 k€) marche aussi une fois admin.
+
+## Sauvegarde de la progression (v1.5)
+- **En ligne** : un compte par joueur (pseudo + mot de passe, créé à la première connexion). La partie est sauvegardée toutes les 30 s, quand tu quittes et quand le serveur redémarre. Tu te reconnectes, tu reprends.
+- **Solo** : sauvegarde dans le navigateur, bouton « Continuer la partie » à l'accueil.
+- **Se faire arrêter (pression à 100) efface la partie** pour de bon (elle part au palmarès `games_over`). Case « Recommencer à zéro » pour repartir de rien volontairement.
+- Docker Compose lance **PostgreSQL** (conteneur `tycoon-db`, volume `pgdata`, aucun port ouvert dehors). Mots de passe joueurs hachés (scrypt).
+- Sans Docker (`lancer-serveur.bat`) : sauvegardes dans `server/data/accounts.json`.
+- Mettre les mots de passe dans `.env` (voir `.env.example`) : `ADMIN_PASSWORD` et `DB_PASSWORD` (à choisir **avant** le premier lancement : Postgres le grave à la création du volume).
+- Voir les comptes : `docker compose exec db psql -U tycoon -c "select username, cartel, saved_at from accounts;"`
+- Sauvegarder la base : `docker compose exec db pg_dump -U tycoon tycoon > backup.sql`

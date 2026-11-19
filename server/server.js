@@ -9,6 +9,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
+const { createStore, hashPassword, checkPassword } = require('./store');
+let store = null;   // comptes + sauvegardes (PostgreSQL ou fichier)
 
 const PORT = Number(process.env.PORT || 2567);
 const MAX = 6;
@@ -55,7 +57,7 @@ server.on('clientError', (_e, socket) => { try { socket.end('HTTP/1.1 400 Bad Re
 const ipOf = req => (TRUST_PROXY && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket.remoteAddress || '?';
 const wss = new WebSocketServer({
   server,
-  maxPayload: 8 * 1024,                                                     // un message de jeu fait < 1 Ko
+  maxPayload: 32 * 1024,                                                    // un message de jeu fait < 1 Ko, une sauvegarde < 10 Ko
   verifyClient: ({ origin, req }, cb) => {
     if (ORIGINS.length && !ORIGINS.includes(origin)) return cb(false, 403, 'Origine refusée');
     const ip = ipOf(req), n = [...players.values()].filter(p => p.ip === ip).length;
@@ -74,6 +76,8 @@ const news = (text, except) => broadcast({ t: 'news', text }, except);
 /** Texte venant d'un client : sans balises, sans caractères de contrôle, longueur bornée. */
 const clean = (v, n = 24) => String(v ?? '').replace(/[<>&"'`\u0000-\u001f\u007f-\u009f​-‏‪-‮]/g, '').trim().slice(0, n) || '???';
 /** Nombre venant d'un client : fini, borné. */
+const USER_RE = /^[a-zA-Z0-9_-]{3,20}$/;
+const loginTries = new Map();   // ip -> horodatages des tentatives de connexion (anti force brute)
 const num = (v, lo, hi) => { const x = Number(v); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : lo; };
 
 wss.on('connection', (ws, req) => {
@@ -92,11 +96,27 @@ wss.on('connection', (ws, req) => {
     if (!m || typeof m !== 'object') return;
     switch (m.t) {
       case 'hello':
-        if (p.profile) return;
-        clearTimeout(helloTimer);
-        p.profile = { cartel: clean(m.cartel), boss: clean(m.boss, 20), cash: 0, earned: 0, power: 0, villa: 0, tier: 0, kills: 0, employees: 0, heat: 0, lux: 0, aero: false };
-        send(p, { t: 'welcome', id: p.id, slot: p.slot, max: MAX });
-        news(`Un nouveau cartel débarque en ville : ${p.profile.cartel}`, p);
+        // connexion au compte (créé automatiquement au premier passage), puis chargement de la sauvegarde
+        if (p.profile || p.authing) return;
+        p.authing = true;
+        login(p, m).catch(e => { console.error('[compte]', e.message); send(p, { t: 'auth', error: 'Erreur serveur, réessaie.' }); ws.close(); })
+          .finally(() => { p.authing = false; clearTimeout(helloTimer); });
+        break;
+      case 'save': {
+        // sauvegarde de la progression (toutes les 30 s et quand on quitte) ; 1 toutes les 5 s max, 30 Ko max
+        const now = Date.now();
+        if (!p.user || now - (p.lastSave || 0) < 5000) return;
+        if (!m.data || typeof m.data !== 'object' || typeof m.data.v !== 'number') return;
+        if (JSON.stringify(m.data).length > 30_000) return;
+        p.lastSave = now;
+        store.save(p.user, m.data).catch(e => console.error('[sauvegarde]', e.message));
+        break;
+      }
+      case 'dead':
+        // arrêté : la partie est perdue pour de bon, on l'efface et on la garde au palmarès
+        if (!p.user || p.dead) return;
+        p.dead = true;
+        store.gameOver(p.user, p.profile.cartel, p.profile.boss, p.profile.earned, 'arrêté').catch(e => console.error('[game over]', e.message));
         break;
       case 'state': {
         // un état par seconde maximum (sinon un tricheur sature les quartiers des autres)
@@ -175,6 +195,34 @@ wss.on('connection', (ws, req) => {
   ws.on('error', () => { /* connexion coupée : géré par close */ });
 });
 
+async function login(p, m) {
+  const ip = p.ip, now = Date.now();
+  const tries = (loginTries.get(ip) || []).filter(t => now - t < 60_000);
+  if (tries.length >= 10) { send(p, { t: 'auth', error: 'Trop d\'essais, attends une minute.' }); p.ws.close(); return; }
+  tries.push(now); loginTries.set(ip, tries);
+  const user = String(m.user ?? ''), pass = String(m.pass ?? '');
+  if (!USER_RE.test(user)) { send(p, { t: 'auth', error: 'Pseudo : 3 à 20 caractères (lettres, chiffres, - et _).' }); p.ws.close(); return; }
+  if (pass.length < 4 || pass.length > 100) { send(p, { t: 'auth', error: 'Mot de passe : 4 caractères minimum.' }); p.ws.close(); return; }
+  let acc = await store.get(user), isNew = false;
+  if (!acc) {
+    await store.create(user, await hashPassword(pass), clean(m.cartel), clean(m.boss, 20));
+    acc = await store.get(user); isNew = true;
+  } else if (!(await checkPassword(pass, acc.pass_hash))) {
+    send(p, { t: 'auth', error: 'Mot de passe incorrect pour ce pseudo.' }); p.ws.close(); return;
+  }
+  if (p.ws.readyState !== 1) return;
+  // « Nouvelle partie » : on efface la sauvegarde et on prend les nouveaux noms
+  if (m.fresh === true && !isNew) { await store.reset(user, clean(m.cartel), clean(m.boss, 20)); acc = await store.get(user); }
+  // un seul onglet par compte : l'ancienne session est éjectée
+  for (const o of players.values()) if (o !== p && o.user && o.user.toLowerCase() === user.toLowerCase()) { send(o, { t: 'kicked' }); o.ws.close(4001, 'connecté ailleurs'); }
+  await store.login(user);
+  p.user = acc.username;
+  p.profile = { cartel: acc.cartel, boss: acc.boss, cash: 0, earned: 0, power: 0, villa: 0, tier: 0, kills: 0, employees: 0, heat: 0, lux: 0, aero: false };
+  send(p, { t: 'welcome', id: p.id, slot: p.slot, max: MAX, user: acc.username, cartel: acc.cartel, boss: acc.boss, save: acc.save || null, isNew });
+  console.log(`[compte] ${acc.username} ${isNew ? 'créé' : 'connecté'} (${acc.save ? 'reprise de la partie' : 'nouvelle partie'})`);
+  news(acc.save ? `Le cartel ${acc.cartel} est de retour en ville` : `Un nouveau cartel débarque en ville : ${acc.cartel}`, p);
+}
+
 // recharge des jetons de débit
 setInterval(() => { for (const p of players.values()) p.bucket = Math.min(20, p.bucket + 10); }, 1000);
 // connexions mortes (onglet fermé brutalement, réseau coupé) : ping toutes les 30 s
@@ -198,20 +246,26 @@ setInterval(() => {
 
 // arrêt propre (docker stop)
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => {
-  broadcast({ t: 'news', text: 'Le serveur ferme. La ville s\'éteint.' });
-  for (const p of players.values()) p.ws.close();
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 2000).unref();
+  // on demande à chacun de sauvegarder, puis on ferme
+  broadcast({ t: 'news', text: 'Le serveur redémarre. Ta partie est sauvegardée, reconnecte-toi dans un instant.' });
+  broadcast({ t: 'saveNow' });
+  setTimeout(() => {
+    for (const p of players.values()) p.ws.close();
+    server.close(async () => { try { await store?.close(); } catch { /* */ } process.exit(0); });
+  }, 800);
+  setTimeout(() => process.exit(0), 4000).unref();
 });
 // filet de sécurité : une erreur imprévue est loguée, le serveur reste debout
 process.on('uncaughtException', e => console.error('[erreur]', e));
 
-server.listen(PORT, () => {
+createStore().then(s => { store = s; server.listen(PORT, onListen); }).catch(e => { console.error('Base de données injoignable :', e.message); process.exit(1); });
+function onListen() {
   const nets = require('os').networkInterfaces();
   const ips = Object.values(nets).flat().filter(n => n && n.family === 'IPv4' && !n.internal).map(n => n.address);
   console.log('\n  TYCOON DRUG — serveur multijoueur lancé');
   console.log(`  Toi :        http://localhost:${PORT}`);
   for (const ip of ips) console.log(`  Tes potes :  http://${ip}:${PORT}   (même réseau / wifi)`);
   console.log(ADMIN_PASSWORD ? '  Panneau admin : activé (touche F9 en jeu, mot de passe ADMIN_PASSWORD)' : '  Panneau admin : désactivé en ligne (définis ADMIN_PASSWORD pour l\'activer)');
+  console.log(`  Sauvegardes : ${store.kind}`);
   console.log(`  Joueurs max : ${MAX}. Ferme cette fenêtre pour arrêter le serveur.\n`);
-});
+}

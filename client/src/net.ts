@@ -1,6 +1,10 @@
 // Connexion au serveur multijoueur (une ville partagée, 6 joueurs max).
 import { GameState, employees, power, villaTier } from './sim/sim';
 import { LUX_KEYS } from './sim/config';
+import type { SaveData } from './sim/save';
+
+export interface Login { user: string; pass: string; cartel: string; boss: string; fresh: boolean }
+export interface Welcome { user: string; cartel: string; boss: string; save: SaveData | null; isNew: boolean }
 
 export interface PlayerInfo {
   id: number; slot: number; cartel: string; boss: string;
@@ -32,24 +36,32 @@ export class Net {
   onHitResult: (m: { target: number; win: boolean }) => void = () => {};
   onNews: (text: string) => void = () => {};
   onLost: () => void = () => {};
+  onKicked: () => void = () => {};
+  onSaveNow: () => void = () => {};
+  welcome: Welcome | null = null;
+  error = '';
   private ws: WebSocket | null = null;
 
-  connect(url: string, cartel: string, boss: string): Promise<'ok' | 'full' | 'fail'> {
+  connect(url: string, login: Login): Promise<'ok' | 'full' | 'fail' | 'auth'> {
     return new Promise(resolve => {
       let done = false;
-      const finish = (r: 'ok' | 'full' | 'fail') => { if (!done) { done = true; resolve(r); } };
+      const finish = (r: 'ok' | 'full' | 'fail' | 'auth') => { if (!done) { done = true; resolve(r); } };
       try { this.ws = new WebSocket(url); } catch { finish('fail'); return; }
       const ws = this.ws;
-      const timer = setTimeout(() => { finish('fail'); try { ws.close(); } catch { /* */ } }, 5000);
-      ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', cartel, boss }));
+      const timer = setTimeout(() => { finish('fail'); try { ws.close(); } catch { /* */ } }, 8000);
+      ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', ...login }));
       ws.onerror = () => { clearTimeout(timer); finish('fail'); };
       ws.onclose = () => { clearTimeout(timer); if (this.online) { this.online = false; this.players = []; this.onLost(); } finish('fail'); };
       ws.onmessage = e => {
         let m: any; try { m = JSON.parse(e.data); } catch { return; }
         switch (m.t) {
           case 'full': clearTimeout(timer); finish('full'); break;
+          case 'auth': clearTimeout(timer); this.error = m.error; finish('auth'); break;
+          case 'kicked': this.onKicked(); break;
+          case 'saveNow': this.onSaveNow(); break;
           case 'welcome':
             clearTimeout(timer); this.online = true; this.id = m.id; this.slot = m.slot;
+            this.welcome = { user: m.user, cartel: m.cartel, boss: m.boss, save: m.save, isNew: m.isNew };
             try { localStorage.setItem('td-server', url); } catch { /* */ }
             finish('ok'); break;
           case 'world': this.players = (m.players as PlayerInfo[]).filter(p => p.id !== this.id); this.dom = m.dom; this.onWorld(m.ext); break;
@@ -77,6 +89,8 @@ export class Net {
   loot(to: number, amount: number) { this.send({ t: 'loot', to, amount }); }
   news(text: string) { this.send({ t: 'news', text }); }
   adminLogin(pass: string) { this.send({ t: 'admin', pass }); }
+  save(data: SaveData) { this.send({ t: 'save', data }); }
+  dead() { this.send({ t: 'dead' }); }
   bye() { this.send({ t: 'bye' }); }
   player(id: number) { return this.players.find(p => p.id === id); }
   /** Place des autres dans TA vue : ta base est toujours à l'origine, les autres sur les emplacements autour. */

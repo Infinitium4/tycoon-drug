@@ -6,3 +6,4 @@ jouer
 .git
 *.bat
 *.md
+server/data

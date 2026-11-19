@@ -241,7 +241,7 @@ button.go small { font-size: 13px; opacity: .9; }
 .start .mode { display: flex; gap: 8px; margin: 6px 0 2px; }
 .start .mode button { flex: 1; padding: 9px; border-radius: 10px; border: 2px solid #334155; background: #0f172a; color: #cbd5e1; font: 800 14px 'Nunito', sans-serif; cursor: pointer; }
 .start .mode button.on { border-color: #22c55e; color: #fff; background: #14532d; }
-.start .srv { display: none; } .start .srv.show { display: block; }
+
 .start .hint { font-size: 11px; color: #94a3b8; margin-top: 3px; }
 /* v1.4 panneau admin */
 .pcwin.small { width: min(520px, 94vw); }
@@ -253,3 +253,10 @@ button.go small { font-size: 13px; opacity: .9; }
 .pc.admin .opbtn { flex: 1; min-width: 110px; }
 .pc.admin .err { color: #f87171; font-weight: 800; }
 .pc.admin .go { width: 100%; }
+/* v1.5 comptes et sauvegarde */
+.start .saved { background: #14532d; border: 1px solid #22c55e; color: #dcfce7; border-radius: 10px; padding: 9px 12px; margin: 8px 0 2px; font: 700 14px 'Nunito', sans-serif; }
+.start .opt { color: #64748b; font-weight: 600; text-transform: none; letter-spacing: 0; }
+.start .chk { display: flex; align-items: center; gap: 8px; font: 700 13px 'Nunito', sans-serif; color: #cbd5e1; margin: 10px 0 2px; text-transform: none; letter-spacing: 0; cursor: pointer; }
+.start .chk input { width: auto; margin: 0; }
+.start .err { color: #f87171; font: 800 13px 'Nunito', sans-serif; min-height: 18px; margin-top: 6px; }
+.start .hint { font-size: 11px; color: #94a3b8; margin-top: 3px; }

@@ -7,7 +7,31 @@ services:
       - "${PORT:-2567}:2567"
     restart: unless-stopped
     environment:
+      - DATABASE_URL=postgres://tycoon:${DB_PASSWORD:-tycoon}@db:5432/tycoon
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}            # panneau admin (F9) : mets ton mot de passe dans le fichier .env
       - MAX_PER_IP=3
       # - TRUST_PROXY=1                              # si derrière Nginx / Traefik / Caddy
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}            # panneau admin (F9) : mets ton mot de passe dans un fichier .env
       # - ALLOWED_ORIGINS=https://jeu.mondomaine.fr  # n'accepter que ton domaine
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Base de données : comptes joueurs + sauvegardes. Pas de port ouvert vers l'extérieur.
+  db:
+    image: postgres:16-alpine
+    container_name: tycoon-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tycoon
+      POSTGRES_USER: tycoon
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-tycoon}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tycoon -d tycoon"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
